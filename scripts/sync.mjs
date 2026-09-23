@@ -21,7 +21,7 @@ import { join, dirname, resolve as pathResolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { fetchJson, listFiles, resolveRef, mapPool, githubToken, proxyUrl } from './lib/http.mjs'
-import { normalizeStmdb, validateUnified, buildAfIndex } from './lib/normalize.mjs'
+import { normalizeStmdb, validateUnified, buildAfIndex, VALIDATION_RULES } from './lib/normalize.mjs'
 import { writeIfChanged, writeAlways, rebuildIndex, jsonText } from './lib/write.mjs'
 
 const ROOT = pathResolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -172,6 +172,12 @@ const stat = { added: 0, updated: 0, unchanged: 0, skipped: 0, pins: 0, afSlots:
 const warnings = []
 const perFamily = new Map()
 const kept = new Map()
+// 类型分布统计（写进 meta，作为"枚举改名/别名拆分"生效的可核查证据）
+const pinTypes = new Map()
+const functionTypes = new Map()
+let aliasedPins = 0
+let validatedChips = 0
+const bump = (map, key) => map.set(key, (map.get(key) ?? 0) + 1)
 
 for (const [chip, doc] of docs) {
   const afIndex = afIndexes.get(chip)?.index || null
@@ -195,18 +201,23 @@ for (const [chip, doc] of docs) {
     continue
   }
 
-  const { errors, warnings: warns } = validateUnified(unified)
+  const { errors, warnings: warns, checked } = validateUnified(unified)
   for (const w of warns) warnings.push(`${chip}: ${w}`)
   if (errors.length) {
     failures.push({ chip, stage: 'validate', error: errors.join('; ') })
     stat.skipped++
     continue
   }
+  validatedChips++
+  if (checked.length !== VALIDATION_RULES.length) warnings.push(`${chip}: validator rule set mismatch`)
 
   kept.set(chip, unified)
   stat.pins += unified.pinCount
   for (const pin of unified.pins) {
+    bump(pinTypes, pin.type)
+    if (pin.aliases?.length) aliasedPins++
     for (const fn of pin.functions) {
+      bump(functionTypes, fn.type ?? 'unknown')
       if (fn.system) continue
       stat.afSlots++
       if (typeof fn.af === 'number') stat.afFilled++
@@ -245,7 +256,7 @@ if (!opts.dryRun) {
 }
 
 const meta = {
-  schemaVersion: '1.0.0',
+  schemaVersion: '1.1.0',
   checkedAt: generatedAt,
   generatedAt,
   filters: { line: opts.line, ref: opts.ref, limit: opts.limit || null, af: opts.af },
@@ -276,6 +287,16 @@ const meta = {
     afCoverage: s.afSlots ? Number((s.afFilled / s.afSlots).toFixed(4)) : 0
   })).sort((a, b) => a.family.localeCompare(b.family)),
   datasetTotals: manifest?.totals ?? null,
+  // 校验器：规则清单 + 实际执行数量 + 违规数（0 才代表物理 pin 层干净）
+  validation: {
+    checkedChips: validatedChips,
+    rules: VALIDATION_RULES,
+    violations: failures.filter(f => f.stage === 'validate').length,
+    failures: failures.filter(f => f.stage === 'validate').map(f => ({ chip: f.chip, error: f.error }))
+  },
+  pinTypes: Object.fromEntries([...pinTypes].sort((a, b) => b[1] - a[1])),
+  functionTypes: Object.fromEntries([...functionTypes].sort((a, b) => b[1] - a[1])),
+  pinsWithAliases: aliasedPins,
   failures,
   warningCount: warnings.length,
   warningsTop: [...new Set(warnings)].slice(0, 40),

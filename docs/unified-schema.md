@@ -1,4 +1,4 @@
-# 统一 JSON Schema（v1.0.0）
+# 统一 JSON Schema（v1.1.0）
 
 前端只读这一套格式；上游差异全部由 `scripts/lib/normalize.mjs` 吃掉。
 
@@ -6,7 +6,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `schemaVersion` | string | 当前 `1.0.0` |
+| `schemaVersion` | string | 当前 `1.1.0` |
 | `vendor` | string | `STMicroelectronics` |
 | `chip` | string | 上游 ref（= stm-db 文件名），如 `STM32F103C8Tx`。**一个封装一个 id**，不是"一颗芯片" |
 | `displayName` | string | 上游展示名，如 `STM32F103C(8-B)Tx` |
@@ -24,19 +24,23 @@
 
 ```json
 {
-  "position": "7",          // 数字=线性引脚号；A1/B7=网格坐标（packageKind=grid）
-  "pad": "PA0",             // 去掉重映射注解的焊盘名（"PA11 [PA9]" → "PA11"）
-  "name": "PA0-WKUP",       // 上游原始引脚名
-  "type": "io",             // 语义类型，见下表
+  "position": "7",          // 物理位置：数字=线性引脚号；A1/B7=网格坐标（packageKind=grid）。同文件内唯一
+  "primary": "PC13",        // 主显示名（前端图上一律渲染这个）
+  "aliases": ["TAMPER", "RTC"],   // 从名字里拆出来的别名；可重复、可省略
+  "variantOf": "PA9",       // 可选：引脚重映射标注里指向的另一个 pad（"PA11 [PA9]"）
+  "pad": "PC13",            // 焊盘名（= primary，保留字段名兼容旧前端）
+  "name": "PC13-TAMPER-RTC",       // 上游原始引脚名，保留可追溯
+  "type": "gpio",           // 语义类型，见下表
   "rawType": "I/O",         // 上游原始类型，保留以便追溯
   "osc": true,              // 可选：晶振/时钟相关（名字含 -OSC 或功能含 RCC_OSC*）
   "functions": [
-    { "peripheral": "TIM2", "signal": "CH1", "af": 2 },
-    { "peripheral": "RCC",  "signal": "MCO", "af": null, "system": true }
+    { "peripheral": "TIM2", "signal": "CH1", "af": 2, "type": "timer" },
+    { "peripheral": "RCC",  "signal": "MCO", "af": null, "type": "system", "system": true }
   ],
   "variants": {             // 可选：引脚重映射变体（上游 variant 字段）
     "PINREMAP": {
       "name": "NC",
+      "primary": "NC",
       "type": "nc",
       "functions": []
     }
@@ -44,11 +48,26 @@
 }
 ```
 
+### 主名 / 别名 / 变体为什么要拆开（v1.1.0 的改动）
+
+上游把三类不同性质的信息塞在一个 `name` 字符串里，直接渲染会出现"一个物理脚两个名字"，而且无法判断哪个才是主名：
+
+| 上游写法 | primary | aliases | variantOf | 说明 |
+|---|---|---|---|---|
+| `PC13-TAMPER-RTC` | `PC13` | `TAMPER`, `RTC` | | `-` 后缀是"额外功能提示"，不是第二主名 |
+| `PA13-JTMS/SWDIO` | `PA13` | `JTMS`, `SWDIO` | | 调试复用也是别名 |
+| `VDD/VDDA` | `VDD` | `VDDA` | | 同一物理脚的两个网络名 |
+| `VSSA/VREF-` | `VSSA` | `VREF-` | | **负参考的连字符属于名字**，拆分时要保留 |
+| `PA11 [PA9]` | `PA11` | | `PA9` | 方括号是重映射标注，不是同一脚的别名 |
+| `PDR_ON` | `PDR_ON` | | | 无分隔符，原样为主名 |
+
+规则实现见 `scripts/lib/normalize.mjs` 的 `splitPinName()`（有单测路径：F1 的 `-` 后缀、G0 的 `[ ]`、F4 的 `VREF-`）。
+
 ### 语义类型映射（源数据只有 6 个原始值）
 
 | rawType | type | 规则 |
 |---|---|---|
-| `I/O` | `io` | 一律 io；晶振相关另打 `osc: true`，不臆造 `clock` |
+| `I/O` | `gpio` | 引脚名含 `-OSC` 或功能含 `RCC_OSC*` → 提升为 `clock`（v1.1.0 起），否则 `gpio` |
 | `Power` | `ground` / `power` | 名字以 `VSS` 开头 → `ground`，否则 `power`（`VREF+`/`VCAP*`/`VLXSMPS` 都归 power） |
 | `Reset` | `reset` | |
 | `Boot` | `boot` | `BOOT0..3`、`BYPASS_REG` |
@@ -56,6 +75,11 @@
 | `NC` | `nc` | `NC`、`AT0/AT1` |
 
 ### functions 的拆分规则
+
+每个 function 除 `peripheral` / `signal` / `af` 外，还有 `type`（分组用，原始外设名保留，信息不丢）：
+`adc`（ADC*）、`timer`（TIM*/LPTIM*/HRTIM*）、`spi`（SPI*/I2S*/SAI*）、`i2c`（I2C*/I3C*）、
+`uart`（USART*/UART*/LPUART*）、`can`（CAN*/FDCAN*）、`usb`（USB*/OTG*）、`system`（RCC* 等）、其余 `other`
+（DAC/ETH/SDMMC/QUADSPI 等暂归 `other`，枚举后续可扩）。
 
 `GPIO` 之外的每个 signal token 拆成 `{peripheral, signal}`，第一段下划线前是外设：
 

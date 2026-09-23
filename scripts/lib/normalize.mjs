@@ -58,7 +58,7 @@ export function mapPinType(rawType, name) {
   const raw = String(rawType || '').trim()
   const n = String(name || '').toUpperCase()
   switch (raw) {
-    case 'I/O': return 'io'
+    case 'I/O': return 'gpio'
     case 'Power': return n.startsWith('VSS') ? 'ground' : 'power'
     case 'Reset': return 'reset'
     case 'Boot': return 'boot'
@@ -80,11 +80,33 @@ export function splitToken(token) {
   return { kind, peripheral, signal }
 }
 
-/** pad name of a pin entry, remap annotations stripped: "PA11 [PA9]" → "PA11" */
-export const pinPad = (name) => {
-  const m = /^([A-Za-z]+\d+)/.exec(String(name || '').trim())
-  return m ? m[1].toUpperCase() : String(name || '').trim().toUpperCase()
+/**
+ * 把上游混在名字里的三类信息拆开（见 docs/08 §2.1）：
+ *   "PC13-TAMPER-RTC"  → primary=PC13, aliases=[TAMPER, RTC]
+ *   "VDD/VDDA"         → primary=VDD,  aliases=[VDDA]
+ *   "VSSA/VREF-"       → primary=VSSA, aliases=[VREF-]（负参考的连字符要保留）
+ *   "PA13-JTMS/SWDIO"  → primary=PA13, aliases=[JTMS, SWDIO]
+ *   "PA11 [PA9]"       → primary=PA11, variantOf=PA9（变体重映射，不是别名）
+ */
+export function splitPinName(name) {
+  const raw = String(name || '').trim()
+  const remap = /^(.*?)\s*\[([^\]]+)\]\s*$/.exec(raw)
+  const head = (remap ? remap[1] : raw).trim()
+  const variantOf = remap ? remap[2].trim().toUpperCase() : null
+
+  const segments = head.split('/').map((s) => s.trim()).filter(Boolean)
+  const dashParts = (segments[0] || head).split('-').map((s) => s.trim())
+  const primary = (dashParts[0] || head).toUpperCase()
+
+  const aliases = []
+  for (const part of dashParts.slice(1)) if (part) aliases.push(part.toUpperCase())
+  for (const part of segments.slice(1)) if (part) aliases.push(part.toUpperCase())
+
+  return { primary, aliases: [...new Set(aliases)], variantOf }
 }
+
+/** pad 名 = 主名（去掉别名与变体标注）："VSSA/VREF-" → "VSSA" */
+export const pinPad = (name) => splitPinName(name).primary
 
 /** Candidate stm-db tokens for one embassy pin entry (embassy and stm-db name the same
  *  function differently in places — most visibly I2S, which embassy files under SPI<n>). */
@@ -125,6 +147,25 @@ export function buildAfIndex(embassyDoc) {
  *  the unmatched-AF tally so the list in meta.json stays actionable. */
 const AF_NEVER = /^(ADC\d+_(IN|INN|EXTI)|DAC\d+_OUT|GPIO)/
 
+/** 外设前缀 → 功能大类（分组用；原始 peripheral 名保留，信息不丢） */
+const FUNCTION_TYPE_RULES = [
+  [/^ADC/, 'adc'],
+  [/^(TIM|LPTIM|HRTIM)/, 'timer'],
+  [/^(SPI|I2S|SAI)/, 'spi'],
+  [/^(I2C|I3C)/, 'i2c'],
+  [/^(USART|UART|LPUART)/, 'uart'],
+  [/^(CAN|FDCAN)/, 'can'],
+  [/^(USB|OTG)/, 'usb'],
+]
+
+export function functionType(peripheral, kind) {
+  if (kind === 'system') return 'system'
+  for (const [pattern, type] of FUNCTION_TYPE_RULES) {
+    if (pattern.test(String(peripheral || ''))) return type
+  }
+  return 'other'
+}
+
 const compactSignal = (token, afIndex, pad, afMisses) => {
   const { kind, peripheral, signal } = splitToken(token)
   if (kind === 'gpio') return null
@@ -132,7 +173,13 @@ const compactSignal = (token, afIndex, pad, afMisses) => {
   if (afIndex && af === undefined && kind === 'peripheral' && !AF_NEVER.test(token)) {
     afMisses?.add(`${peripheral}_${signal}`)
   }
-  return { peripheral, signal, af: af ?? null, ...(kind === 'system' ? { system: true } : {}) }
+  return {
+    peripheral,
+    signal,
+    af: af ?? null,
+    type: functionType(peripheral, kind),
+    ...(kind === 'system' ? { system: true } : {})
+  }
 }
 
 /** stm-db doc → unified doc. `afIndex` is optional (AF enrichment off). */
@@ -154,18 +201,28 @@ export function normalizeStmdb(doc, { ref, vendorName, afIndex = null, sourceMet
     const variants = {}
     for (const e of entries) {
       if (!e.variant) continue
+      const v = splitPinName(e.name)
       variants[e.variant] = {
         name: e.name,
+        primary: v.primary,
+        ...(v.aliases.length ? { aliases: v.aliases } : {}),
         type: mapPinType(e.type, e.name),
         functions: (e.signals || []).map((t) => compactSignal(t, afIndex, pinPad(e.name), afMisses)).filter(Boolean)
       }
     }
     const isOsc = /-OSC/.test(String(base.name)) || (base.signals || []).some((t) => /^RCC_OSC/.test(t))
+    const { primary, aliases, variantOf } = splitPinName(base.name)
+    const mappedType = mapPinType(base.type, base.name)
+    // OSC 脚单独成类（时钟）：rawType 只有 I/O，但物理上就是时钟脚
+    const type = isOsc && mappedType === 'gpio' ? 'clock' : mappedType
     pins.push({
       position,
       pad,
+      primary,
+      ...(aliases.length ? { aliases } : {}),
+      ...(variantOf ? { variantOf } : {}),
       name: base.name,
-      type: mapPinType(base.type, base.name),
+      type,
       rawType: base.type,
       ...(isOsc ? { osc: true } : {}),
       functions,
@@ -175,7 +232,7 @@ export function normalizeStmdb(doc, { ref, vendorName, afIndex = null, sourceMet
 
   const pkg = doc.package || null
   return {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     vendor: vendorName,
     chip: ref,
     displayName: names.name || ref,
@@ -202,6 +259,20 @@ export function normalizeStmdb(doc, { ref, vendorName, afIndex = null, sourceMet
   }
 }
 
+/**
+ * 校验清单（docs/08 §2.5）。物理 pin 相关的都是硬错误（不发布该文件），
+ * functions / aliases 允许重复（VSS 多脚同名、一个功能出现在多个脚上都正常）。
+ */
+export const VALIDATION_RULES = [
+  'position-present',
+  'position-unique',
+  'primary-present',
+  'name-present',
+  'pin-count-matches-package',
+  'position-format',
+  'package-kind-resolved',
+]
+
 /** Hard errors mean "do not publish this file"; warnings are recorded for the report. */
 export function validateUnified(u) {
   const errors = []
@@ -213,9 +284,11 @@ export function validateUnified(u) {
 
   const seen = new Set()
   for (const p of u.pins) {
+    if (!p.position) errors.push('pin without position')
     if (seen.has(p.position)) errors.push(`duplicate position ${p.position} after variant merge`)
     seen.add(p.position)
     if (!p.name) errors.push(`pin ${p.position} has empty name`)
+    if (!p.primary) errors.push(`pin ${p.position} has empty primary (name: ${p.name})`)
     if (p.rawType && !['I/O', 'Power', 'Reset', 'Boot', 'MonoIO', 'NC'].includes(p.rawType)) {
       warnings.push(`unknown raw pin type ${p.rawType} @${p.position}`)
     }
@@ -252,5 +325,5 @@ export function validateUnified(u) {
     if (nums.some((n) => !Number.isInteger(n))) errors.push('non-numeric position in a non-grid package')
     else if (nums.some((n, i) => n !== i + 1)) warnings.push('linear pin numbering is not contiguous 1..N')
   }
-  return { errors, warnings }
+  return { errors, warnings, checked: VALIDATION_RULES }
 }

@@ -101,7 +101,7 @@ export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlug
       String(a.line).localeCompare(String(b.line)) || String(a.chip).localeCompare(String(b.chip)))
     const path = `${vendorSlug}/${family}.json`
     await writeAlways(join(indexPath, path), jsonText({
-      schemaVersion: '1.0.0',
+      schemaVersion: '1.1.0',
       family,
       count: shard.count,
       generatedAt,
@@ -111,7 +111,7 @@ export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlug
   }
 
   const manifest = {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     generatedAt,
     vendor: vendorSlug,
     upstream,
