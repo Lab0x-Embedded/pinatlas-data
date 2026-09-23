@@ -81,28 +81,47 @@ export function splitToken(token) {
 }
 
 /**
- * 把上游混在名字里的三类信息拆开（见 docs/08 §2.1）：
- *   "PC13-TAMPER-RTC"  → primary=PC13, aliases=[TAMPER, RTC]
- *   "VDD/VDDA"         → primary=VDD,  aliases=[VDDA]
- *   "VSSA/VREF-"       → primary=VSSA, aliases=[VREF-]（负参考的连字符要保留）
- *   "PA13-JTMS/SWDIO"  → primary=PA13, aliases=[JTMS, SWDIO]
- *   "PA11 [PA9]"       → primary=PA11, variantOf=PA9（变体重映射，不是别名）
+ * 把上游混在名字里的四类信息拆开（见 docs/08 §2.1）：
+ *   "PC13-TAMPER-RTC"      → primary=PC13, aliases=[TAMPER, RTC]
+ *   "VDD/VDDA"             → primary=VDD,  aliases=[VDDA]
+ *   "VSSA/VREF-"           → primary=VSSA, aliases=[VREF-]（负参考的连字符要保留）
+ *   "PC14-OSC32_IN (PC14)" → primary=PC14, aliases=[OSC32_IN]（括号里与主名相同则丢弃）
+ *   "PA13 (JTMS/SWDIO)"    → primary=PA13, aliases=[JTMS, SWDIO]
+ *   "PA11 [PA9]"           → primary=PA11, variantOf=PA9（变体重映射，不是别名）
+ *
+ * 顺序很重要：**先摘掉括号注释与方括号标注，再按 / 和 - 拆**。
+ * 否则 "PA13 (JTMS/SWDIO)" 会被斜杠拆成 primary="PA13 (JTMS"，AF join 键失配
+ * （实测 STM32L412C8Ux 因此少 17 个 AF，整个 L4/L5/H7/U5 家族覆盖率都掉）。
  */
 export function splitPinName(name) {
-  const raw = String(name || '').trim()
-  const remap = /^(.*?)\s*\[([^\]]+)\]\s*$/.exec(raw)
-  const head = (remap ? remap[1] : raw).trim()
-  const variantOf = remap ? remap[2].trim().toUpperCase() : null
+  let raw = String(name || '').trim()
 
-  const segments = head.split('/').map((s) => s.trim()).filter(Boolean)
-  const dashParts = (segments[0] || head).split('-').map((s) => s.trim())
-  const primary = (dashParts[0] || head).toUpperCase()
+  // 1) 方括号：重映射标注（指向另一个 pad）
+  const bracket = raw.lastIndexOf('[')
+  const hasBracket = bracket >= 0 && raw.endsWith(']')
+  const variantOf = hasBracket ? raw.slice(bracket + 1, raw.length - 1).trim().toUpperCase() || null : null
+  if (hasBracket) raw = raw.slice(0, bracket).trim()
+
+  // 2) 圆括号：行尾注释（JTMS/SWDIO、OSC32_IN 这类），内容当别名
+  const paren = raw.lastIndexOf('(')
+  const hasParen = paren >= 0 && raw.endsWith(')')
+  const parenAliases = hasParen
+    ? raw.slice(paren + 1, raw.length - 1).split(/[/-]/).map((s) => s.trim().toUpperCase()).filter(Boolean)
+    : []
+  if (hasParen) raw = raw.slice(0, paren).trim()
+
+  // 3) 斜杠 = 同一物理脚的第二个网络名；连字符 = 额外功能提示
+  const segments = raw.split('/').map((s) => s.trim()).filter(Boolean)
+  const dashParts = (segments[0] || raw).split('-').map((s) => s.trim())
+  const primary = (dashParts[0] || raw).toUpperCase()
 
   const aliases = []
   for (const part of dashParts.slice(1)) if (part) aliases.push(part.toUpperCase())
   for (const part of segments.slice(1)) if (part) aliases.push(part.toUpperCase())
+  for (const part of parenAliases) if (part) aliases.push(part)
 
-  return { primary, aliases: [...new Set(aliases)], variantOf }
+  // 括号注释等于主名时丢弃（"PH0-OSC_IN (PH0)" 这种冗余），别名也不该等于主名
+  return { primary, aliases: [...new Set(aliases)].filter((a) => a && a !== primary), variantOf }
 }
 
 /** pad 名 = 主名（去掉别名与变体标注）："VSSA/VREF-" → "VSSA" */
@@ -267,6 +286,7 @@ export const VALIDATION_RULES = [
   'position-present',
   'position-unique',
   'primary-present',
+  'primary-clean',
   'name-present',
   'pin-count-matches-package',
   'position-format',
@@ -289,6 +309,8 @@ export function validateUnified(u) {
     seen.add(p.position)
     if (!p.name) errors.push(`pin ${p.position} has empty name`)
     if (!p.primary) errors.push(`pin ${p.position} has empty primary (name: ${p.name})`)
+    // primary 里残留空格/括号说明注释没摘干净（曾导致 AF join 键失配：STM32L412C8Ux 少 17 个 AF）
+    else if (/[\s([\]]/.test(p.primary)) errors.push(`pin ${p.position} primary has annotation leftovers: ${p.primary}`)
     if (p.rawType && !['I/O', 'Power', 'Reset', 'Boot', 'MonoIO', 'NC'].includes(p.rawType)) {
       warnings.push(`unknown raw pin type ${p.rawType} @${p.position}`)
     }

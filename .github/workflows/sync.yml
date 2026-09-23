@@ -47,6 +47,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Unit tests（改名/派生规则先过，避免 AF join 键被拆坏）
+        run: node --test scripts/lib/*.test.mjs
+
       - name: Sync dataset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

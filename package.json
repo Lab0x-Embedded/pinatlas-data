@@ -10,6 +10,7 @@
   "scripts": {
     "sync": "node scripts/sync.mjs",
     "sync:small": "node scripts/sync.mjs --line STM32F1 --limit 40 --af",
+    "test": "node --test scripts/lib/*.test.mjs",
     "report": "node scripts/sync.mjs --dry-run --line STM32F1 --limit 40"
   }
 }
