@@ -5,7 +5,7 @@
 // L4/L5/H7/U5/WBA 整个家族的覆盖率一起掉）。所以这里把上游真实出现过的名字形态全部钉住。
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { functionType, mapPinType, normalizeStmdb, packageKind, pinPad, splitPinName, splitToken, validateUnified } from './normalize.mjs'
+import { functionType, mapPinType, normalizeStmdb, packageKind, pinPad, SCHEMA_VERSION, splitPinName, splitToken, validateUnified } from './normalize.mjs'
 
 test('splitPinName：连字符后缀是别名', () => {
   assert.deepEqual(splitPinName('PC13-TAMPER-RTC'), { primary: 'PC13', aliases: ['TAMPER', 'RTC'], variantOf: null })
@@ -111,7 +111,7 @@ test('normalizeStmdb：EXTI 归一后按外设去重，且不再挂假前缀外�
     [{ peripheral: 'EXTI', signal: 'EXTI9', af: null, type: 'exti', system: true }])
   // 三条同线号 token 去重成一条
   assert.equal(u.pins.find(p => p.pad === 'PA11').functions.filter(f => f.peripheral === 'EXTI').length, 1)
-  assert.equal(u.schemaVersion, '1.2.0')
+  assert.equal(u.schemaVersion, SCHEMA_VERSION)
 })
 
 test('packageKind：名字与编号形态双判', () => {

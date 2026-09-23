@@ -1,4 +1,4 @@
-# 统一 JSON Schema（v1.2.0）
+# 统一 JSON Schema（v1.3.0）
 
 前端只读这一套格式；上游差异全部由 `scripts/lib/normalize.mjs` 吃掉。
 
@@ -6,7 +6,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `schemaVersion` | string | 当前 `1.2.0` |
+| `schemaVersion` | string | 当前 `1.3.0`（`normalize.mjs` 的 `SCHEMA_VERSION` 单点定义，芯片文档 / 索引 / 清单 / meta.json 同源） |
 | `vendor` | string | `STMicroelectronics` |
 | `chip` | string | 上游 ref（= stm-db 文件名），如 `STM32F103C8Tx`。**一个封装一个 id**，不是"一颗芯片" |
 | `displayName` | string | 上游展示名，如 `STM32F103C(8-B)Tx` |
@@ -113,6 +113,19 @@ v1.1.0 按原样拆 → 详情面板出现 `DAC` 组下挂 `EXTI9` 这种假分�
 - 只重标上游真实存在的 token，**不**替未标注的 GPIO 推演 `EXTIn`（那会凭空多出 20 万+ 条功能项）。
 
 前端消费：`type: 'exti'` 的组单独成块（排序在可配置外设之后、`RCC/SYS` 之前），徽标文案「外部中断」。
+
+### 索引（`index.json` + `index/st/<family>.json`）
+
+前端首屏只拉这两级：`index.json` 给 27 个家族分片清单（`shards[]` 的 `{family, count, path}`），
+家族分片给该家族的型号条目。条目字段（v1.3.0）：
+
+| 字段 | 说明 |
+|---|---|
+| `chip` | 唯一 id（= 文件名）；列表主名必须用它，`displayName` 有 24% 重复 |
+| `displayName` / `line` / `die` | 展示名 / 子系列 / die（die 是"封装切换"的分组键） |
+| `package` / `packageKind` / `pinCount` / `flashKb` | 列表副标题与筛选用 |
+| `mpns` | **v1.3.0 新增**：该型号的订货号（`parts[].mpn`，去重，可省略）。用户常按芯片丝印搜（`STM32F103C8T6` / `C8T6`），而 `chip` 是带通配后缀的 ref（`STM32F103C8Tx`），只靠 chip/displayName 搜不到。实测 2737/2781 型号有 mpn、全库 5034 条（平均 1.8、最多 8），索引涨 83 KB（551 → 634 KB） |
+| `part` | 芯片详情文件路径（`st/<family>/<chip>.json`） |
 
 ### AF 号
 

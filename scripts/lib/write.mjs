@@ -7,6 +7,8 @@
 import { mkdir, readFile, readdir, writeFile, stat } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 
+import { SCHEMA_VERSION } from './normalize.mjs'
+
 export const jsonText = (obj) => JSON.stringify(obj) + '\n'
 
 export async function readTextIfExists(path) {
@@ -71,6 +73,7 @@ export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlug
     }
     chipCount++
     pinCount += doc.pinCount || 0
+    const mpns = [...new Set((doc.parts || []).map((p) => p?.mpn).filter(Boolean))]
     for (const pin of doc.pins || []) {
       for (const fn of pin.functions || []) {
         if (fn.system) continue
@@ -91,6 +94,10 @@ export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlug
       packageKind: doc.packageKind ?? null,
       pinCount: doc.pinCount ?? null,
       flashKb: doc.memory?.flashKb ?? null,
+      // 订货号（parts[].mpn，v1.3.0 起）：用户常按芯片丝印搜（"STM32F103C8T6" / "C8T6"），
+      // 而 chip id 是带通配后缀的 ref（STM32F103C8Tx），只靠 chip/displayName 搜不到。
+      // 实测 2737/2781 型号有 mpn，全库 5034 条（平均 1.8、最多 8），索引只涨 83 KB。
+      ...(mpns.length ? { mpns } : {}),
       part: `${vendorSlug}/${family}/${doc.chip}.json`
     })
   }
@@ -101,7 +108,7 @@ export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlug
       String(a.line).localeCompare(String(b.line)) || String(a.chip).localeCompare(String(b.chip)))
     const path = `${vendorSlug}/${family}.json`
     await writeAlways(join(indexPath, path), jsonText({
-      schemaVersion: '1.1.0',
+      schemaVersion: SCHEMA_VERSION,
       family,
       count: shard.count,
       generatedAt,
@@ -111,7 +118,7 @@ export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlug
   }
 
   const manifest = {
-    schemaVersion: '1.1.0',
+    schemaVersion: SCHEMA_VERSION,
     generatedAt,
     vendor: vendorSlug,
     upstream,
