@@ -108,7 +108,7 @@ position 22  ×2 → {"name":"PA11 [PA9]","variant":null} + {"name":"PA9 [PA11]"
 24002 个 token / 1589 唯一：
 
 - 无下划线：`GPIO`(3400)、`CEC`、`AUDIOCLK`、`BOOTFAILN`
-- 前缀与语义不符：`ADC1_EXTI11/15`（其实是 EXTI）
+- 前缀与语义不符：`ADC1_EXTI11/15`、`DAC_EXTI9`（其实是 EXTI 线；v1.2.0 起归成 `EXTI/EXTIn` 并标 `system`，见 unified-schema.md）
 - 多下划线：`ETH1_MII_RX_CLK`、`ADC1_PDM_CLK`（拆第一个下划线即可）
 - 差分负端：`ADC1_INN10`
 - 非外设前缀：`RCC_`(354)、`SYS_`(311)

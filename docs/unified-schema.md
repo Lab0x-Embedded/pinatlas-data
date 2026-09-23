@@ -1,4 +1,4 @@
-# 统一 JSON Schema（v1.1.0）
+# 统一 JSON Schema（v1.2.0）
 
 前端只读这一套格式；上游差异全部由 `scripts/lib/normalize.mjs` 吃掉。
 
@@ -6,7 +6,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `schemaVersion` | string | 当前 `1.1.0` |
+| `schemaVersion` | string | 当前 `1.2.0` |
 | `vendor` | string | `STMicroelectronics` |
 | `chip` | string | 上游 ref（= stm-db 文件名），如 `STM32F103C8Tx`。**一个封装一个 id**，不是"一颗芯片" |
 | `displayName` | string | 上游展示名，如 `STM32F103C(8-B)Tx` |
@@ -35,6 +35,7 @@
   "osc": true,              // 可选：晶振/时钟相关（名字含 -OSC 或功能含 RCC_OSC*）
   "functions": [
     { "peripheral": "TIM2", "signal": "CH1", "af": 2, "type": "timer" },
+    { "peripheral": "EXTI", "signal": "EXTI9", "af": null, "type": "exti", "system": true },
     { "peripheral": "RCC",  "signal": "MCO", "af": null, "type": "system", "system": true }
   ],
   "variants": {             // 可选：引脚重映射变体（上游 variant 字段）
@@ -78,8 +79,8 @@
 
 每个 function 除 `peripheral` / `signal` / `af` 外，还有 `type`（分组用，原始外设名保留，信息不丢）：
 `adc`（ADC*）、`timer`（TIM*/LPTIM*/HRTIM*）、`spi`（SPI*/I2S*/SAI*）、`i2c`（I2C*/I3C*）、
-`uart`（USART*/UART*/LPUART*）、`can`（CAN*/FDCAN*）、`usb`（USB*/OTG*）、`system`（RCC* 等）、其余 `other`
-（DAC/ETH/SDMMC/QUADSPI 等暂归 `other`，枚举后续可扩）。
+`uart`（USART*/UART*/LPUART*）、`can`（CAN*/FDCAN*）、`usb`（USB*/OTG*）、`exti`（EXTI 外部中断线）、
+`system`（RCC* 等）、其余 `other`（DAC/ETH/SDMMC/QUADSPI 等暂归 `other`，枚举后续可扩）。
 
 `GPIO` 之外的每个 signal token 拆成 `{peripheral, signal}`，第一段下划线前是外设：
 
@@ -88,7 +89,30 @@
 - `CEC`、`AUDIOCLK`、`BOOTFAILN` → 无下划线，`signal` 为空
 - `GPIO` → 丢弃（前端默认"可作普通 GPIO"，不占功能列表位置）
 - `RCC_*` / `SYS_*` → 保留但标 `system: true`，前端单独分组（不是可配置外设）
-- `ADC1_EXTI11` 这类"挂在某外设前缀下的 EXTI"按原样拆，前端显示原 token 即可
+- `ADC1_EXTI11`、`DAC_EXTI9`、`SDADC1_EXTI15` → **不能**按第一个下划线拆（v1.2.0 的改动，见下）
+
+### v1.2.0 的改动：`XXX_EXTIn` 归一成独立 EXTI 外设
+
+上游旧家族把「模拟能力 + EXTI 线」写成了一个 token（全库 63979 个，只有 5 种形态：
+`ADC#_EXTI#` 48292、`DAC#_EXTI#` 10198、`DAC_EXTI#` 3715、`ADC_EXTI#` 1435、`SDADC#_EXTI#` 339）。
+v1.1.0 按原样拆 → 详情面板出现 `DAC` 组下挂 `EXTI9` 这种假分组（STM32F407 的 PB9）。
+
+实测依据：
+
+| 结论 | 证据 |
+|---|---|
+| token 里的数字是 **EXTI 线号 = 引脚序号** | 63979 个里 63977 个成立；唯二例外是 STM32U5 的 PC5 → `DAC1_EXTI9` |
+| 前缀外设常常在该脚上并不存在 | 上游 ST 原文 `mcu/STM32F407V(E-G)Tx.xml` 里 PB9 就是 `<Signal Name="DAC_EXTI9"/>`，而 F407 的 DAC 输出只有 `DAC_OUT1/OUT2`（PA4/PA5）；PA11 挂 `ADC1/2/3_EXTI11` 但 PA11 不是 ADC 输入（ADC1_IN11 是 PC1） |
+| 丢掉前缀不丢信息 | 真模拟通道另有 `ADCn_INm` token（PC4 = `ADC1_IN14`），前缀只是旧库生成时的分组残留 |
+| EXTI 永远没有 AF 号 | embassy 生成物里 `EXTI` 外设的 `pins` 恒为空（抽 9 个家族验证） |
+
+归一规则：`/^(?:[A-Z]*ADC\d*|SDADC\d*|DAC\d*)_EXTI(\d+)$/` → `{peripheral:'EXTI', signal:'EXTI9', type:'exti', system:true}`。
+
+- `system: true` 的理由与 `RCC_/SYS_` 一致：EXTI 线没有一套可配置的外设寄存器，也永远拿不到 AF，不应计入 AF 覆盖统计，也不该出现在 `meta.json.afUnmatchedTop` 里当"待补别名"。
+- 同一引脚上同一条线号会重复出现（18781 个引脚挂了 2~3 个前缀不同的同线号 token），`compactSignals()` 按 `peripheral|signal` 去重。
+- 只重标上游真实存在的 token，**不**替未标注的 GPIO 推演 `EXTIn`（那会凭空多出 20 万+ 条功能项）。
+
+前端消费：`type: 'exti'` 的组单独成块（排序在可配置外设之后、`RCC/SYS` 之前），徽标文案「外部中断」。
 
 ### AF 号
 
@@ -97,4 +121,4 @@
 - join 键：`pad|TOKEN`（token 如 `I2C1_SCL`），embassy 侧 `peripheral + signal` 拼接后匹配；
 - 别名：I2S 家族（embassy 记在 `SPI<n>` 下：`SPI1 + I2S_CK` → `I2S1_CK`/`I2S1_SCK`），外设别名表 `FSMC↔FMC`、`SDIO↔SDMMC`、`ETH↔ETH1`；
 - 拿不到时为 `null`（**不是 0**）。整片 STM32F1 都是 null，因为 embassy 对 F1 没有 AF 数据；
-- 每次同步把未匹配 token 的前 40 个写进 `meta.json.afUnmatchedTop`，用于继续补别名。
+- 每次同步把未匹配 token 的前 40 个写进 `meta.json.afUnmatchedTop`，用于继续补别名。EXTI 线不参与（见 v1.2.0 的改动），所以这份清单只留真正待补的别名。

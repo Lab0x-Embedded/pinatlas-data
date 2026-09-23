@@ -5,7 +5,7 @@
 // L4/L5/H7/U5/WBA 整个家族的覆盖率一起掉）。所以这里把上游真实出现过的名字形态全部钉住。
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { functionType, mapPinType, packageKind, pinPad, splitPinName, splitToken, validateUnified } from './normalize.mjs'
+import { functionType, mapPinType, normalizeStmdb, packageKind, pinPad, splitPinName, splitToken, validateUnified } from './normalize.mjs'
 
 test('splitPinName：连字符后缀是别名', () => {
   assert.deepEqual(splitPinName('PC13-TAMPER-RTC'), { primary: 'PC13', aliases: ['TAMPER', 'RTC'], variantOf: null })
@@ -66,6 +66,7 @@ test('功能大类派生', () => {
   assert.equal(functionType('I2S1', 'peripheral'), 'spi')
   assert.equal(functionType('LPUART1', 'peripheral'), 'uart')
   assert.equal(functionType('RCC', 'system'), 'system')
+  assert.equal(functionType('EXTI', 'exti'), 'exti')
   assert.equal(functionType('QUADSPI', 'peripheral'), 'other')
 })
 
@@ -73,6 +74,44 @@ test('splitToken：GPIO 单列，系统信号标记', () => {
   assert.deepEqual(splitToken('GPIO'), { kind: 'gpio', peripheral: 'GPIO', signal: '' })
   assert.deepEqual(splitToken('TIM2_CH1'), { kind: 'peripheral', peripheral: 'TIM2', signal: 'CH1' })
   assert.equal(splitToken('RCC_OSC_IN').kind, 'system')
+})
+
+/**
+ * 上游把「模拟能力 + EXTI 线」合成一个 token（全库 63979 个，只有 5 种形态）。
+ * 按第一个下划线拆会得到 `DAC` + `EXTI9` 的假分组：PB9 显示成「DAC · EXTI9」，
+ * 而 STM32F407 的 DAC 输出只在 PA4/PA5（ST 原文 PB9 = `<Signal Name="DAC_EXTI9"/>`，
+ * 真 DAC 输出写作 `DAC_OUT1/2`）→ 线号才是真的，前缀是旧库生成时的分组残留。
+ */
+test('splitToken：XXX_EXTIn 归成独立 EXTI 外设（线号保留，前缀丢弃）', () => {
+  assert.deepEqual(splitToken('DAC_EXTI9'), { kind: 'exti', peripheral: 'EXTI', signal: 'EXTI9' })
+  assert.deepEqual(splitToken('ADC1_EXTI11'), { kind: 'exti', peripheral: 'EXTI', signal: 'EXTI11' })
+  assert.deepEqual(splitToken('ADC_EXTI11'), { kind: 'exti', peripheral: 'EXTI', signal: 'EXTI11' })
+  assert.deepEqual(splitToken('SDADC3_EXTI15'), { kind: 'exti', peripheral: 'EXTI', signal: 'EXTI15' })
+  // 真模拟通道不受影响
+  assert.deepEqual(splitToken('ADC1_IN11'), { kind: 'peripheral', peripheral: 'ADC1', signal: 'IN11' })
+  assert.deepEqual(splitToken('DAC_OUT1'), { kind: 'peripheral', peripheral: 'DAC', signal: 'OUT1' })
+})
+
+test('normalizeStmdb：EXTI 归一后按外设去重，且不再挂假前缀外设', () => {
+  const doc = {
+    names: { name: 'STM32F407V(E-G)Tx', family: 'STM32F4', line: 'STM32F407' },
+    package: 'LQFP100',
+    silicon: { die: 'DIE427' },
+    pinout: [
+      // F407 PB9 的上游原文：DAC_EXTI9 与 CAN1_TX 并列（PB9 没有 DAC 通道）
+      { position: '96', name: 'PB9', type: 'I/O', signals: ['CAN1_TX', 'DAC_EXTI9', 'I2C1_SDA', 'GPIO'] },
+      // F407 PA11 的上游原文：同一条 EXTI11 被三个 ADC 前缀重复标注
+      { position: '77', name: 'PA11', type: 'I/O', signals: ['ADC1_EXTI11', 'ADC2_EXTI11', 'ADC3_EXTI11', 'CAN1_RX', 'GPIO'] },
+    ],
+  }
+  const u = normalizeStmdb(doc, { ref: 'STM32F407VGTx', vendorName: 'STMicroelectronics' })
+  const pb9 = u.pins.find(p => p.pad === 'PB9')
+  assert.ok(!pb9.functions.some(f => f.peripheral === 'DAC'), JSON.stringify(pb9.functions))
+  assert.deepEqual(pb9.functions.filter(f => f.peripheral === 'EXTI'),
+    [{ peripheral: 'EXTI', signal: 'EXTI9', af: null, type: 'exti', system: true }])
+  // 三条同线号 token 去重成一条
+  assert.equal(u.pins.find(p => p.pad === 'PA11').functions.filter(f => f.peripheral === 'EXTI').length, 1)
+  assert.equal(u.schemaVersion, '1.2.0')
 })
 
 test('packageKind：名字与编号形态双判', () => {

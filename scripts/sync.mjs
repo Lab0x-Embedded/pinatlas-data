@@ -21,7 +21,7 @@ import { join, dirname, resolve as pathResolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { fetchJson, listFiles, resolveRef, mapPool, githubToken, proxyUrl } from './lib/http.mjs'
-import { normalizeStmdb, validateUnified, buildAfIndex, VALIDATION_RULES } from './lib/normalize.mjs'
+import { normalizeStmdb, validateUnified, buildAfIndex, VALIDATION_RULES, SCHEMA_VERSION } from './lib/normalize.mjs'
 import { writeIfChanged, writeAlways, rebuildIndex, jsonText } from './lib/write.mjs'
 
 const ROOT = pathResolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -256,7 +256,7 @@ if (!opts.dryRun) {
 }
 
 const meta = {
-  schemaVersion: '1.1.0',
+  schemaVersion: SCHEMA_VERSION,
   checkedAt: generatedAt,
   generatedAt,
   filters: { line: opts.line, ref: opts.ref, limit: opts.limit || null, af: opts.af },

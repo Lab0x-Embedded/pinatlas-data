@@ -17,6 +17,26 @@
 
 const SYSTEM_PREFIXES = new Set(['RCC', 'SYS'])
 
+/** 统一 schema 版本（normalize.mjs 写进芯片文档、sync.mjs 写进 meta.json，必须同源） */
+export const SCHEMA_VERSION = '1.2.0'
+
+/**
+ * 上游把「模拟能力 + EXTI 线」合成了一个 token。实测全库 63979 个，只有 5 种形态：
+ *   ADC#_EXTI#（48292）、DAC#_EXTI#（10198）、DAC_EXTI#（3715）、ADC_EXTI#（1435）、SDADC#_EXTI#（339）
+ *
+ * 证据（为什么必须纠偏，而不是"按原样拆、前端显示原 token"）：
+ *   1. token 里的数字是 **EXTI 线号 = 脚位序号**（63977/63979 成立；唯二例外是 STM32U5 的 PC5 →
+ *      DAC1_EXTI9），而 ST 官方 pin data（`STM32_open_pin_data` 的 `mcu/STM32F407V(E-G)Tx.xml`）
+ *      里 PB9 原文就是 `<Signal Name="DAC_EXTI9"/>`，真 DAC 输出写作 `DAC_OUT1/OUT2`（PA4/PA5）。
+ *      → 前缀不是"这个脚属于该外设"，按第一个下划线拆会得到 `DAC` + `EXTI9` 的假分组。
+ *   2. 前缀外设在这个脚上往往根本不存在：F407 的 PA11 不是 ADC 输入（ADC1_IN11 是 PC1），
+ *      却挂着 ADC1_EXTI11/ADC2_EXTI11/ADC3_EXTI11。真模拟通道另有 `ADCn_INm` token（PC4 =
+ *      ADC1_IN14），所以丢掉前缀不丢信息。
+ *   3. EXTI 永远拿不到 AF 号：embassy 生成的 9 个家族（F1/F0/F4/F7/G0/G4/H7/L4/U5/WB/C0）里
+ *      `EXTI` 外设的 pins 全是空数组 → 归成 system（不计入 AF 覆盖统计、不污染 afUnmatchedTop）。
+ */
+const EXTI_TOKEN = /^(?:[A-Z]*ADC\d*|SDADC\d*|DAC\d*)_EXTI(\d+)$/
+
 /** Peripheral-name aliases between the two upstreams (evidence-driven, extend as needed). */
 const PERIPHERAL_ALIASES = {
   FSMC: ['FMC'],
@@ -68,10 +88,13 @@ export function mapPinType(rawType, name) {
   }
 }
 
-/** "TIM2_CH1" → {peripheral:'TIM2', signal:'CH1'}; "GPIO" → {kind:'gpio'}; "SYS_WKUP" → system. */
+/** "TIM2_CH1" → {peripheral:'TIM2', signal:'CH1'}; "GPIO" → {kind:'gpio'}; "SYS_WKUP" → system;
+ *  "DAC_EXTI9"/"ADC1_EXTI11" → {kind:'exti', peripheral:'EXTI', signal:'EXTI9'}（见 EXTI_TOKEN 注释）。 */
 export function splitToken(token) {
   const t = String(token || '')
   if (t === 'GPIO') return { kind: 'gpio', peripheral: 'GPIO', signal: '' }
+  const exti = EXTI_TOKEN.exec(t)
+  if (exti) return { kind: 'exti', peripheral: 'EXTI', signal: `EXTI${exti[1]}` }
   const i = t.indexOf('_')
   if (i < 0) return { kind: 'peripheral', peripheral: t, signal: '' }
   const peripheral = t.slice(0, i)
@@ -178,7 +201,8 @@ export function buildAfIndex(embassyDoc) {
 }
 
 /** Tokens that never carry an AF number (analog channels, EXTI lines, plain GPIO) — excluded from
- *  the unmatched-AF tally so the list in meta.json stays actionable. */
+ *  the unmatched-AF tally so the list in meta.json stays actionable. EXTI 现在由 splitToken 归成
+ *  kind='exti'，压根走不到这里（那段分支留作历史形态说明）。*/
 const AF_NEVER = /^(ADC\d+_(IN|INN|EXTI)|DAC\d+_OUT|GPIO)/
 
 /** 外设前缀 → 功能大类（分组用；原始 peripheral 名保留，信息不丢） */
@@ -194,6 +218,7 @@ const FUNCTION_TYPE_RULES = [
 
 export function functionType(peripheral, kind) {
   if (kind === 'system') return 'system'
+  if (kind === 'exti') return 'exti'
   for (const [pattern, type] of FUNCTION_TYPE_RULES) {
     if (pattern.test(String(peripheral || ''))) return type
   }
@@ -212,8 +237,29 @@ const compactSignal = (token, afIndex, pad, afMisses) => {
     signal,
     af: af ?? null,
     type: functionType(peripheral, kind),
-    ...(kind === 'system' ? { system: true } : {})
+    // EXTI 线不是可配置外设、也永远没有 AF 号（embassy 的 EXTI 外设 pins 恒为空）
+    // → 与 RCC_/SYS_ 同样标 system，前端按 type 单独成「外部中断」块
+    ...(kind === 'system' || kind === 'exti' ? { system: true } : {})
   }
+}
+
+/**
+ * 拆 + 去重。去重的必要性是实测的：18781 个引脚同时挂 2~3 个同线号 token
+ * （ADC1_EXTI11 + ADC2_EXTI11 + ADC3_EXTI11 在 F4 的每个 *11 脚上），
+ * 归成 EXTI11 后会变成 3 条完全相同的功能项。
+ */
+const compactSignals = (signals, afIndex, pad, afMisses) => {
+  const seen = new Set()
+  const out = []
+  for (const token of signals || []) {
+    const fn = compactSignal(token, afIndex, pad, afMisses)
+    if (!fn) continue
+    const key = `${fn.peripheral}|${fn.signal}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(fn)
+  }
+  return out
 }
 
 /** stm-db doc → unified doc. `afIndex` is optional (AF enrichment off). */
@@ -231,7 +277,7 @@ export function normalizeStmdb(doc, { ref, vendorName, afIndex = null, sourceMet
   for (const [position, entries] of byPosition) {
     const base = entries.find((e) => !e.variant) || entries[0]
     const pad = pinPad(base.name)
-    const functions = (base.signals || []).map((t) => compactSignal(t, afIndex, pad, afMisses)).filter(Boolean)
+    const functions = compactSignals(base.signals, afIndex, pad, afMisses)
     const variants = {}
     for (const e of entries) {
       if (!e.variant) continue
@@ -241,7 +287,7 @@ export function normalizeStmdb(doc, { ref, vendorName, afIndex = null, sourceMet
         primary: v.primary,
         ...(v.aliases.length ? { aliases: v.aliases } : {}),
         type: mapPinType(e.type, e.name),
-        functions: (e.signals || []).map((t) => compactSignal(t, afIndex, pinPad(e.name), afMisses)).filter(Boolean)
+        functions: compactSignals(e.signals, afIndex, pinPad(e.name), afMisses)
       }
     }
     const isOsc = /-OSC/.test(String(base.name)) || (base.signals || []).some((t) => /^RCC_OSC/.test(t))
@@ -266,7 +312,7 @@ export function normalizeStmdb(doc, { ref, vendorName, afIndex = null, sourceMet
 
   const pkg = doc.package || null
   return {
-    schemaVersion: '1.1.0',
+    schemaVersion: SCHEMA_VERSION,
     vendor: vendorName,
     chip: ref,
     displayName: names.name || ref,
