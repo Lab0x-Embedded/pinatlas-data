@@ -88,6 +88,7 @@ export function splitToken(token) {
  *   "PC14-OSC32_IN (PC14)" → primary=PC14, aliases=[OSC32_IN]（括号里与主名相同则丢弃）
  *   "PA13 (JTMS/SWDIO)"    → primary=PA13, aliases=[JTMS, SWDIO]
  *   "PA11 [PA9]"           → primary=PA11, variantOf=PA9（变体重映射，不是别名）
+ *   "PC2_C"                → primary=PC2（_C 是模拟开关后缀，主名要取焊盘 token）
  *
  * 顺序很重要：**先摘掉括号注释与方括号标注，再按 / 和 - 拆**。
  * 否则 "PA13 (JTMS/SWDIO)" 会被斜杠拆成 primary="PA13 (JTMS"，AF join 键失配
@@ -110,14 +111,28 @@ export function splitPinName(name) {
     : []
   if (hasParen) raw = raw.slice(0, paren).trim()
 
-  // 3) 斜杠 = 同一物理脚的第二个网络名；连字符 = 额外功能提示
-  const segments = raw.split('/').map((s) => s.trim()).filter(Boolean)
-  const dashParts = (segments[0] || raw).split('-').map((s) => s.trim())
-  const primary = (dashParts[0] || raw).toUpperCase()
-
   const aliases = []
-  for (const part of dashParts.slice(1)) if (part) aliases.push(part.toUpperCase())
-  for (const part of segments.slice(1)) if (part) aliases.push(part.toUpperCase())
+  // 3) 主名优先取"字母 + 数字"的焊盘 token：这是 embassy AF join 的键
+  //    PC2_C → PC2（_C 是模拟开关后缀）；PC13_TAMPER → PC13；PC13-TAMPER-RTC → PC13
+  const token = /^([A-Za-z]+\d+)/.exec(raw)
+  let primary
+  if (token) {
+    primary = token[1].toUpperCase()
+    // 下划线属于信号名（OSC_IN），只能按 / 和 - 拆；再剥掉首尾的 _ 与空白
+    const leftover = raw.slice(token[1].length).split(/[/-]/)
+    for (const part of leftover.map((s) => s.trim().replace(/^[\s_]+|[\s_]+$/g, '').toUpperCase())) {
+      if (part.length > 1) aliases.push(part)
+    }
+  }
+  else {
+    // 4) 没有焊盘 token（VDD/VDDA、VSSA/VREF-、PDR_ON 这类）：按 / 再按 - 拆，第一段为主名
+    const segments = raw.split('/').map((s) => s.trim()).filter(Boolean)
+    const dashParts = (segments[0] || raw).split('-').map((s) => s.trim())
+    primary = (dashParts[0] || raw).toUpperCase()
+    for (const part of dashParts.slice(1)) if (part) aliases.push(part.toUpperCase())
+    for (const part of segments.slice(1)) if (part) aliases.push(part.toUpperCase())
+  }
+
   for (const part of parenAliases) if (part) aliases.push(part)
 
   // 括号注释等于主名时丢弃（"PH0-OSC_IN (PH0)" 这种冗余），别名也不该等于主名

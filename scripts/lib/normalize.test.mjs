@@ -28,6 +28,13 @@ test('splitPinName：圆括号注释先摘再拆（L4/H7 家族的真实形态�
   assert.deepEqual(splitPinName('PC14-OSC32_IN (PC14)'), { primary: 'PC14', aliases: ['OSC32_IN'], variantOf: null })
 })
 
+test('splitPinName：字母+数字后缀（模拟开关脚）主名要取焊盘 token', () => {
+  assert.deepEqual(splitPinName('PC2_C'), { primary: 'PC2', aliases: [], variantOf: null })
+  assert.deepEqual(splitPinName('PA0_C'), { primary: 'PA0', aliases: [], variantOf: null })
+  assert.deepEqual(splitPinName('PB2_BOOT1'), { primary: 'PB2', aliases: ['BOOT1'], variantOf: null })
+  assert.deepEqual(splitPinName('PC2_WKUP'), { primary: 'PC2', aliases: ['WKUP'], variantOf: null })
+})
+
 test('splitPinName：方括号是重映射标注', () => {
   assert.deepEqual(splitPinName('PA11 [PA9]'), { primary: 'PA11', aliases: [], variantOf: 'PA9' })
 })
