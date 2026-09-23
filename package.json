@@ -1,0 +1,15 @@
+{
+  "name": "pinatlas-data",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PinAtlas unified chip-pin dataset — built from LibrePCB/stm-db (primary) + embassy-rs/stm32-data-generated (AF numbers & metadata)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "sync": "node scripts/sync.mjs",
+    "sync:small": "node scripts/sync.mjs --line STM32F1 --limit 40 --af",
+    "report": "node scripts/sync.mjs --dry-run --line STM32F1 --limit 40"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "$comment": "PinAtlas data sync config. Upstreams are pinned by commit sha at run time (never by branch) so a build is reproducible; `pinned` here is only a fallback when the GitHub API is unreachable.",
+  "primary": {
+    "name": "LibrePCB/stm-db",
+    "repo": "LibrePCB/stm-db",
+    "branch": "master",
+    "dataPrefix": "data/",
+    "cdn": "https://cdn.jsdelivr.net/gh/LibrePCB/stm-db@{ref}/",
+    "fallbackCdn": "https://raw.githubusercontent.com/LibrePCB/stm-db/{ref}/",
+    "license": "scripts MIT (LICENSE.txt); generated data: repo README states it “only contains technical information … and probably do[es] not fall under copyright”"
+  },
+  "enrichment": {
+    "name": "embassy-rs/stm32-data-generated",
+    "repo": "embassy-rs/stm32-data-generated",
+    "branch": "main",
+    "dataPrefix": "data/chips/",
+    "cdn": "https://cdn.jsdelivr.net/gh/embassy-rs/stm32-data-generated@{ref}/",
+    "fallbackCdn": "https://raw.githubusercontent.com/embassy-rs/stm32-data-generated/{ref}/",
+    "use": [
+      "alternate-function numbers (peripheral → pin → af)",
+      "registers / RCC / interrupts / DMA metadata (reserved for code generation)"
+    ],
+    "license": "no LICENSE file in the generated repo; data is derived from ST documentation — attribution only, no licence granted"
+  },
+  "network": {
+    "concurrency": 12,
+    "tries": 4,
+    "timeoutMs": 60000,
+    "afChipBudgetBytes": 268435456
+  },
+  "output": {
+    "dir": "data",
+    "vendorSlug": "st",
+    "vendorName": "STMicroelectronics"
+  }
+}

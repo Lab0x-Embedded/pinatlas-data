@@ -1,0 +1,96 @@
+name: sync-data
+
+# Weekly sync of the unified PinAtlas dataset.
+#
+# Notes:
+#   * GitHub disables `schedule` triggers after 60 days without repository activity. The sync
+#     always rewrites `data/meta.json` (checkedAt), so an idle week still produces a commit and
+#     the schedule stays armed. `workflow_dispatch` is the manual override.
+#   * `schedule` is best-effort (it can be delayed or skipped under load) — acceptable for a
+#     weekly dataset.
+#   * The AF enrichment step downloads ~240 MB of embassy chip documents; that is why the job
+#     has a 60-minute timeout and can be turned off per run.
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      line:
+        description: 'Only sync refs with this prefix (e.g. STM32F1); empty = all'
+        required: false
+        default: ''
+      limit:
+        description: 'Max chips to sync, 0 = all'
+        required: false
+        default: '0'
+      af:
+        description: 'Enable AF enrichment (true/false)'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-data
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Sync dataset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=""
+          if [ -n "${{ inputs.line }}" ]; then args="$args --line ${{ inputs.line }}"; fi
+          if [ -n "${{ inputs.limit }}" ] && [ "${{ inputs.limit }}" != "0" ]; then args="$args --limit ${{ inputs.limit }}"; fi
+          if [ "${{ inputs.af }}" = "false" ]; then args="$args --no-af"; fi
+          node scripts/sync.mjs $args
+
+      - name: Summarise
+        if: always()
+        run: |
+          node -e '
+            const fs = require("fs");
+            let m; try { m = JSON.parse(fs.readFileSync("data/meta.json", "utf8")); } catch { process.exit(0); }
+            const t = m.datasetTotals || {};
+            const lines = [
+              "### pinatlas-data sync",
+              "",
+              `- upstream primary: \`${m.upstream.primary.ref}\``,
+              `- upstream enrichment: \`${m.upstream.enrichment.ref || "disabled"}\``,
+              `- this run: ${m.run.written} written / ${m.run.unchanged} unchanged / ${m.run.failed} failed (${m.run.seconds}s)`,
+              `- this run AF coverage: ${(m.run.afCoverage * 100).toFixed(1)}% (${m.run.afFilled ?? "-"})`,
+              `- dataset: ${t.chips ?? "?"} chips, ${t.pins ?? "?"} pins, AF ${t.afCoverage != null ? (t.afCoverage * 100).toFixed(1) + "%" : "?"}`
+            ];
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+          '
+
+      - name: Commit dataset
+        # Runs even when the sync step reported failures: whatever validated successfully is
+        # still worth committing, while the red step keeps the failure visible.
+        if: always()
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data
+          if git diff --cached --quiet; then
+            echo "no data changes"
+          else
+            git commit -m "chore(data): weekly sync $(date -u +%Y-%m-%d)"
+            for i in 1 2 3; do
+              git push && break || sleep 5
+            done
+          fi

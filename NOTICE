@@ -1,0 +1,30 @@
+pinatlas-data
+=============
+
+The JSON files under data/ are converted, re-formatted technical information about
+STMicroelectronics microcontrollers. They are not authored here.
+
+Primary source
+--------------
+LibrePCB/stm-db  https://github.com/LibrePCB/stm-db
+  Data files are generated with STM8CubeMX / STM32CubeMX. That repository's README states the
+  data "only contain[s] technical information that could also be obtained from the datasheets
+  and probably do[es] not fall under copyright". Its scripts are MIT licensed.
+
+Enrichment source
+-----------------
+embassy-rs/stm32-data-generated  https://github.com/embassy-rs/stm32-data-generated
+  Generated output of embassy-rs/stm32-data. The generated repository ships no LICENSE file;
+  the underlying device data (alternate-function numbers, registers, RCC/interrupt/DMA
+  metadata, memory layout) is derived from ST documentation.
+
+Trademarks and copyright
+------------------------
+STM32, STM8 and STM32CubeMX are trademarks or registered trademarks of STMicroelectronics
+International NV or its affiliates. All device data remains the property of STMicroelectronics.
+
+This repository only reorganises and redistributes that information in a uniform JSON shape.
+No license is granted for the data itself beyond what the upstream repositories permit, and
+nothing here implies endorsement by STMicroelectronics, LibrePCB or the Embassy project.
+
+The scripts in scripts/ are licensed under the MIT license — see LICENSE.
