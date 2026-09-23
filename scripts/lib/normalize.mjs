@@ -224,8 +224,17 @@ export function validateUnified(u) {
     warnings.push(`dual package with ${u.pins.length} pins is not even`)
   }
   if (u.packageKind === 'grid') {
-    const bad = u.pins.filter((p) => !/^[A-Z]{1,2}\d{1,2}$/.test(p.position))
-    if (bad.length) errors.push(`${bad.length} grid pins without A1-style coordinates`)
+    // 大封装（实测 TFBGA361 / STM32MP）的 position 混用三种编码：A1、AA1、1J3。
+    // 只要求能识别成"行 + 列"，形态混合只记 warning（排列是否正确需对照数据手册）。
+    const forms = new Set()
+    const bad = u.pins.filter((p) => {
+      const m = /^(\d{0,2})([A-Z]{1,3})(\d{1,2})$/.exec(String(p.position))
+      if (!m) return true
+      forms.add(m[1] ? 'digit-prefixed' : m[2].length > 1 ? 'two-letter' : 'letter')
+      return false
+    })
+    if (bad.length) errors.push(`${bad.length} grid pins without a row+column coordinate (${bad.slice(0, 3).map((p) => p.position).join(', ')})`)
+    else if (forms.size > 1) warnings.push(`grid position 编码混合：${[...forms].join(' + ')}（排列需对照数据手册）`)
   } else {
     const nums = u.pins.map((p) => Number(p.position)).sort((a, b) => a - b)
     if (nums.some((n) => !Number.isInteger(n))) errors.push('non-numeric position in a non-grid package')
