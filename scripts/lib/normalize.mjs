@@ -27,12 +27,22 @@ const PERIPHERAL_ALIASES = {
   ETH1: ['ETH']
 }
 
-export function packageKind(pkg) {
+export function packageKind(pkg, positions = []) {
   const p = String(pkg || '').toUpperCase()
-  if (/(BGA|WLCSP|CSP)/.test(p)) return 'grid'
-  if (/(LQFP|TQFP|PQFP|QFN|FQFPN|DFN)/.test(p)) return 'quad'
-  if (/(TSSOP|SSOP|SOP|SOIC|DIP|SO\d)/.test(p)) return 'dual'
-  return 'unknown'
+  const linear = positions.length > 0 && positions.every(v => /^\d+$/.test(String(v)))
+  const named = /(BGA|WLCSP|CSP|LGA)/.test(p)
+    ? 'grid'
+    : /(QFPN|QFN|LQFP|TQFP|PQFP|QFP|DFN|FQFN)/.test(p)
+        ? 'quad'
+        : /(TSSOP|SSOP|SOP|SOIC|DIP|SO\d)/.test(p)
+            ? 'dual'
+            : 'unknown'
+
+  // 名字像网格但数据是线性编号（如 LGA77 模块）→ 画不出真实网格，按线性近似并保留告警
+  if (named === 'grid' && linear) return 'unknown'
+  // 名字不认识但数据是行列坐标 → 按网格处理
+  if (named === 'unknown' && !linear) return 'grid'
+  return named
 }
 
 /** Trailing digits of most package names are the pin/ball count ("LQFP48", "TFBGA361"). */
@@ -173,7 +183,7 @@ export function normalizeStmdb(doc, { ref, vendorName, afIndex = null, sourceMet
     line: names.line || null,
     die: doc.silicon?.die || null,
     package: pkg,
-    packageKind: packageKind(pkg),
+    packageKind: packageKind(pkg, (doc.pinout || []).map(p => p.position)),
     pinCount: pins.length,
     memory: {
       flashKb: info.flash ?? null,
@@ -215,7 +225,7 @@ export function validateUnified(u) {
   if (expected != null && u.packageKind !== 'grid' && expected !== u.pins.length) {
     warnings.push(`package ${u.package} implies ${expected} pins, file has ${u.pins.length}`)
   }
-  if (u.packageKind === 'unknown') warnings.push(`unrecognised package kind for ${u.package}`)
+  if (u.packageKind === 'unknown') warnings.push(`package kind unresolved for ${u.package}（按线性近似排列，需对照数据手册）`)
 
   if (u.packageKind === 'quad' && u.pins.length % 4 !== 0) {
     warnings.push(`quad package with ${u.pins.length} pins is not divisible by 4`)
@@ -233,6 +243,8 @@ export function validateUnified(u) {
       forms.add(m[1] ? 'digit-prefixed' : m[2].length > 1 ? 'two-letter' : 'letter')
       return false
     })
+    const linearCount = u.pins.filter((p) => /^\d+$/.test(String(p.position))).length
+    if (linearCount) warnings.push(`${linearCount} grid pins use linear numbering（无行列坐标，无法还原真实网格）`)
     if (bad.length) errors.push(`${bad.length} grid pins without a row+column coordinate (${bad.slice(0, 3).map((p) => p.position).join(', ')})`)
     else if (forms.size > 1) warnings.push(`grid position 编码混合：${[...forms].join(' + ')}（排列需对照数据手册）`)
   } else {
