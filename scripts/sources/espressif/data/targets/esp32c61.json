@@ -1,0 +1,76 @@
+{
+  "$comment": "ESP32-C61 overlay,datasheet v1.1 Table 2-1(QFN40/LGA40,均 40 脚,表未编号 GND/裸露焊盘)。三种键合变体:HR2/HR8(外挂 flash,全引出)、HF4(片内 4MB flash,SPICS0/SPIQ/SPIWP/VDD_SPI/SPIHD/SPICLK/SPID = 20/22~27 脚 NC)、NF8R8LA(LGA,片内 flash+PSRAM,再多一个 SPICS1=19 脚 NC)。pad 名→GPIO 号按 esp-idf io_mux(XTAL_32K_P/N=GPIO0/1、MTMS~MTDO=GPIO3~6、U0RXD/TXD=GPIO10/11、USB_D-/D+=GPIO12/13、SDIO_CMD/CLK/DATA0-3=GPIO25/26/27/28/22/23、SPICS1..SPID=GPIO14~21)。",
+  "target": "esp32c61",
+  "family": "ESP32-C61",
+  "memory": { "ramKb": 320, "flashKb": null },
+  "flags": {
+    "strapping": [3, 4, 7, 8, 9],
+    "flash": [14, 15, 16, 17, 18, 19, 20, 21],
+    "usb": [12, 13],
+    "jtag": [3, 4, 5, 6]
+  },
+  "packages": [
+    {
+      "id": "QFN40",
+      "kind": "chip",
+      "package": "QFN40 (5×5)",
+      "packageKind": "quad",
+      "pinCount": 40,
+      "parts": [
+        { "mpn": "ESP32-C61HR2", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-C61HR8", "status": "Active", "temperature": [-40, 105] }
+      ],
+      "pinMap": {
+        "1": "ANT_2G", "2": "VDDA3", "3": "VDDA4", "4": "CHIP_PU", "5": "VDDPST1",
+        "6": "GPIO0", "7": "GPIO1", "8": "GPIO2", "9": "GPIO3", "10": "GPIO4",
+        "11": "GPIO5", "12": "GPIO6", "13": "GPIO25", "14": "GPIO26", "15": "GPIO27",
+        "16": "GPIO28", "17": "GPIO22", "18": "GPIO23", "19": "GPIO14", "20": "GPIO15",
+        "21": "VDDPST2", "22": "GPIO16", "23": "GPIO17", "24": "GPIO18", "25": "GPIO19",
+        "26": "GPIO20", "27": "GPIO21", "28": "GPIO12", "29": "GPIO13", "30": "GPIO24",
+        "31": "GPIO8", "32": "GPIO9", "33": "GPIO10", "34": "GPIO11", "35": "GPIO29",
+        "36": "GPIO7", "37": "VDDA1", "38": "XTAL_N", "39": "XTAL_P", "40": "VDDA2"
+      }
+    },
+    {
+      "id": "QFN40-HF4",
+      "kind": "chip",
+      "package": "QFN40 (5×5), in-package flash",
+      "packageKind": "quad",
+      "pinCount": 40,
+      "parts": [
+        { "mpn": "ESP32-C61HF4", "status": "Active", "temperature": [-40, 105] }
+      ],
+      "pinMap": {
+        "1": "ANT_2G", "2": "VDDA3", "3": "VDDA4", "4": "CHIP_PU", "5": "VDDPST1",
+        "6": "GPIO0", "7": "GPIO1", "8": "GPIO2", "9": "GPIO3", "10": "GPIO4",
+        "11": "GPIO5", "12": "GPIO6", "13": "GPIO25", "14": "GPIO26", "15": "GPIO27",
+        "16": "GPIO28", "17": "GPIO22", "18": "GPIO23", "19": "GPIO14", "20": "NC",
+        "21": "VDDPST2", "22": "NC", "23": "NC", "24": "NC", "25": "NC",
+        "26": "NC", "27": "NC", "28": "GPIO12", "29": "GPIO13", "30": "GPIO24",
+        "31": "GPIO8", "32": "GPIO9", "33": "GPIO10", "34": "GPIO11", "35": "GPIO29",
+        "36": "GPIO7", "37": "VDDA1", "38": "XTAL_N", "39": "XTAL_P", "40": "VDDA2"
+      }
+    },
+    {
+      "id": "LGA40",
+      "kind": "chip",
+      "package": "LGA40 (5×5)",
+      "packageKind": "quad",
+      "pinCount": 40,
+      "parts": [
+        { "mpn": "ESP32-C61NF8R8LA", "status": "Preview", "temperature": [-40, 85] }
+      ],
+      "pinMap": {
+        "1": "ANT_2G", "2": "VDDA3", "3": "VDDA4", "4": "CHIP_PU", "5": "VDDPST1",
+        "6": "GPIO0", "7": "GPIO1", "8": "GPIO2", "9": "GPIO3", "10": "GPIO4",
+        "11": "GPIO5", "12": "GPIO6", "13": "GPIO25", "14": "GPIO26", "15": "GPIO27",
+        "16": "GPIO28", "17": "GPIO22", "18": "GPIO23", "19": "NC", "20": "NC",
+        "21": "VDDPST2", "22": "NC", "23": "NC", "24": "NC", "25": "NC",
+        "26": "NC", "27": "NC", "28": "GPIO12", "29": "GPIO13", "30": "GPIO24",
+        "31": "GPIO8", "32": "GPIO9", "33": "GPIO10", "34": "GPIO11", "35": "GPIO29",
+        "36": "GPIO7", "37": "VDDA1", "38": "XTAL_N", "39": "XTAL_P", "40": "VDDA2"
+      }
+    }
+  ],
+  "source": "ESP32-C61 Series Datasheet v1.1, Tables 1-1 (series comparison), 2-1 (pin overview), 3-1 (strapping); pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp32-c61_datasheet_en.pdf"
+}

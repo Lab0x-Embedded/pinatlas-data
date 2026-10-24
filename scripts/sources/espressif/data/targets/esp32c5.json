@@ -1,0 +1,61 @@
+{
+  "$comment": "ESP32-C5 overlay,datasheet v1.5 Table 2-1(QFN48/LGA48,均 48 脚,该表未编号中心裸露焊盘)。当前全部订货型号(HR2/HR8/HF4/NF8R2LA)都带封装内 flash/PSRAM,故 25~32 脚(SPI 总线 pad=GPIO15~22,含 VDD_SPI=GPIO19)为 NC。pad 名→GPIO 号按 esp-idf io_mux(XTAL_32K_P/N=GPIO0/1、MTMS~MTDO=GPIO2~5、U0TXD/RXD=GPIO11/12)。双频 Wi-Fi 有 ANT_2G/ANT_5G 两个射频脚。SRAM=HP 384KB+LP 16KB。",
+  "target": "esp32c5",
+  "family": "ESP32-C5",
+  "memory": { "ramKb": 400, "flashKb": null },
+  "flags": {
+    "strapping": [2, 3, 7, 25, 26, 27, 28],
+    "flash": [],
+    "usb": [13, 14],
+    "jtag": [2, 3, 4, 5]
+  },
+  "packages": [
+    {
+      "id": "QFN48",
+      "kind": "chip",
+      "package": "QFN48 (6×6)",
+      "packageKind": "quad",
+      "pinCount": 48,
+      "parts": [
+        { "mpn": "ESP32-C5HR2", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-C5HR8", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-C5HF4", "status": "Active", "temperature": [-40, 105] }
+      ],
+      "pinMap": {
+        "1": "VDDA", "2": "GND", "3": "VDDA", "4": "XTAL_N", "5": "XTAL_P",
+        "6": "VDDA", "7": "CHIP_PU", "8": "VDDPST1", "9": "GPIO0", "10": "GPIO1",
+        "11": "GPIO2", "12": "GPIO3", "13": "GPIO4", "14": "GPIO5", "15": "GPIO6",
+        "16": "GPIO7", "17": "GPIO8", "18": "GPIO9", "19": "GPIO10", "20": "GPIO11",
+        "21": "GPIO12", "22": "GPIO13", "23": "GPIO14", "24": "VDDPST2", "25": "NC",
+        "26": "NC", "27": "NC", "28": "NC", "29": "NC", "30": "NC",
+        "31": "NC", "32": "NC", "33": "GPIO23", "34": "GPIO24", "35": "GPIO25",
+        "36": "GPIO26", "37": "GPIO27", "38": "GPIO28", "39": "VDDPST3", "40": "VDDA1",
+        "41": "VDDA2", "42": "ANT_2G", "43": "GND", "44": "VDDA3", "45": "VDDA4",
+        "46": "VDDA5", "47": "GND", "48": "ANT_5G"
+      }
+    },
+    {
+      "id": "LGA48",
+      "kind": "chip",
+      "package": "LGA48 (6×6)",
+      "packageKind": "quad",
+      "pinCount": 48,
+      "parts": [
+        { "mpn": "ESP32-C5NF8R2LA", "status": "Preview", "temperature": [-40, 85] }
+      ],
+      "pinMap": {
+        "1": "VDDA", "2": "GND", "3": "VDDA", "4": "XTAL_N", "5": "XTAL_P",
+        "6": "VDDA", "7": "CHIP_PU", "8": "VDDPST1", "9": "GPIO0", "10": "GPIO1",
+        "11": "GPIO2", "12": "GPIO3", "13": "GPIO4", "14": "GPIO5", "15": "GPIO6",
+        "16": "GPIO7", "17": "GPIO8", "18": "GPIO9", "19": "GPIO10", "20": "GPIO11",
+        "21": "GPIO12", "22": "GPIO13", "23": "GPIO14", "24": "VDDPST2", "25": "NC",
+        "26": "NC", "27": "NC", "28": "NC", "29": "NC", "30": "NC",
+        "31": "NC", "32": "NC", "33": "GPIO23", "34": "GPIO24", "35": "GPIO25",
+        "36": "GPIO26", "37": "GPIO27", "38": "GPIO28", "39": "VDDPST3", "40": "VDDA1",
+        "41": "VDDA2", "42": "ANT_2G", "43": "GND", "44": "VDDA3", "45": "VDDA4",
+        "46": "VDDA5", "47": "GND", "48": "ANT_5G"
+      }
+    }
+  ],
+  "source": "ESP32-C5 Series Datasheet v1.5, Tables 1-1 (series info), 2-1 (pin overview), 3-1 (strapping); pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp32-c5_datasheet_en.pdf"
+}
