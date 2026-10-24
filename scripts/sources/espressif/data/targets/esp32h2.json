@@ -1,0 +1,36 @@
+{
+  "$comment": "ESP32-H2 overlay,datasheet v1.3 Table 2-1(QFN32 = 33 脚含中心裸露焊盘 GND)。全系封装内 flash(2/4MB),SPI flash pad(GPIO6/7、15~21)不外接。pad 名→GPIO 号按 esp-idf io_mux(MTMS=GPIO2、MTDO=GPIO3、MTCK=GPIO4、MTDI=GPIO5、XTAL_32K_P/N=GPIO13/14、U0RXD/TXD=GPIO23/24)。",
+  "target": "esp32h2",
+  "family": "ESP32-H2",
+  "memory": { "ramKb": 320, "flashKb": null },
+  "flags": {
+    "strapping": [8, 9, 25],
+    "flash": [],
+    "usb": [26, 27],
+    "jtag": [2, 3, 4, 5]
+  },
+  "packages": [
+    {
+      "id": "QFN32",
+      "kind": "chip",
+      "package": "QFN32 (4×4)",
+      "packageKind": "quad",
+      "pinCount": 33,
+      "parts": [
+        { "mpn": "ESP32-H2FH2S", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-H2FH4S", "status": "Active", "temperature": [-40, 105] }
+      ],
+      "pinMap": {
+        "1": "VDD3P3", "2": "VDD3P3", "3": "GPIO0", "4": "GPIO1",
+        "5": "GPIO2", "6": "GPIO3", "7": "GPIO4", "8": "GPIO5",
+        "9": "VDDPST1", "10": "GPIO8", "11": "GPIO9", "12": "GPIO10",
+        "13": "GPIO11", "14": "GPIO12", "15": "GPIO13", "16": "GPIO14",
+        "17": "CHIP_EN", "18": "VBAT", "19": "VDDA_PMU", "20": "VDDPST2",
+        "21": "GPIO22", "22": "GPIO23", "23": "GPIO24", "24": "GPIO25",
+        "25": "GPIO26", "26": "GPIO27", "27": "VDD3P3", "28": "XTAL_N",
+        "29": "XTAL_P", "30": "VDD3P3", "31": "VDD3P3", "32": "ANT", "33": "GND"
+      }
+    }
+  ],
+  "source": "ESP32-H2 Series Datasheet v1.3, Tables 1-1 (ordering), 2-1 (pin overview), 3-1 (strapping); pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp32-h2_datasheet_en.pdf"
+}

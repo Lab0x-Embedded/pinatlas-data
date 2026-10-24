@@ -1,0 +1,58 @@
+{
+  "$comment": "ESP32-C6 overlay,datasheet v1.5 Tables 1-1/2-1/2-2(QFN40 = 41 脚、QFN32 = 33 脚,均含中心裸露焊盘 GND)。订货表:裸片(外挂 flash)为 QFN40,带封装内 flash 的 FH4/FH8 为 QFN32(24~26 脚的 flash 总线不键合)。pad 名→GPIO 号按 esp-idf io_mux(VDD_SPI=GPIO27 具备 IO 能力,Power/IO 双角色)。",
+  "target": "esp32c6",
+  "family": "ESP32-C6",
+  "memory": { "ramKb": 512, "flashKb": null },
+  "flags": {
+    "strapping": [4, 5, 8, 9, 15],
+    "flash": [24, 25, 26, 27, 28, 29, 30],
+    "usb": [12, 13],
+    "jtag": [4, 5, 6, 7]
+  },
+  "packages": [
+    {
+      "id": "QFN40",
+      "kind": "chip",
+      "package": "QFN40 (5×5)",
+      "packageKind": "quad",
+      "pinCount": 41,
+      "parts": [
+        { "mpn": "ESP32-C6", "status": "Active", "temperature": [-40, 105] }
+      ],
+      "pinMap": {
+        "1": "ANT", "2": "VDDA3P3", "3": "VDDA3P3", "4": "CHIP_PU", "5": "VDDPST1",
+        "6": "GPIO0", "7": "GPIO1", "8": "GPIO2", "9": "GPIO3",
+        "10": "GPIO4", "11": "GPIO5", "12": "GPIO6", "13": "GPIO7",
+        "14": "GPIO8", "15": "GPIO9", "16": "GPIO10", "17": "GPIO11",
+        "18": "GPIO12", "19": "GPIO13", "20": "GPIO24", "21": "GPIO25",
+        "22": "GPIO26", "23": "GPIO27", "24": "GPIO28", "25": "GPIO29",
+        "26": "GPIO30", "27": "GPIO15", "28": "VDDPST2", "29": "GPIO16",
+        "30": "GPIO17", "31": "GPIO18", "32": "GPIO19", "33": "GPIO20",
+        "34": "GPIO21", "35": "GPIO22", "36": "GPIO23", "37": "VDDA1",
+        "38": "XTAL_N", "39": "XTAL_P", "40": "VDDA2", "41": "GND"
+      }
+    },
+    {
+      "id": "QFN32",
+      "kind": "chip",
+      "package": "QFN32 (5×5)",
+      "packageKind": "quad",
+      "pinCount": 33,
+      "parts": [
+        { "mpn": "ESP32-C6FH4", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-C6FH8", "status": "Active", "temperature": [-40, 105] }
+      ],
+      "pinMap": {
+        "1": "ANT", "2": "VDDA3P3", "3": "VDDA3P3", "4": "CHIP_PU", "5": "VDDPST1",
+        "6": "GPIO0", "7": "GPIO1", "8": "GPIO2", "9": "GPIO3",
+        "10": "GPIO4", "11": "GPIO5", "12": "GPIO6", "13": "GPIO7",
+        "14": "GPIO8", "15": "GPIO9", "16": "GPIO12", "17": "GPIO13",
+        "18": "GPIO14", "19": "GPIO15", "20": "VDDPST2", "21": "GPIO16",
+        "22": "GPIO17", "23": "GPIO18", "24": "GPIO19", "25": "GPIO20",
+        "26": "GPIO21", "27": "GPIO22", "28": "GPIO23", "29": "VDDA1",
+        "30": "XTAL_N", "31": "XTAL_P", "32": "VDDA2", "33": "GND"
+      }
+    }
+  ],
+  "source": "ESP32-C6 Series Datasheet v1.5, Tables 1-1 (ordering), 2-1/2-2 (pin overview), 3-1 (strapping); pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp32-c6_datasheet_en.pdf"
+}

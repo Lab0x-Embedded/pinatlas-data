@@ -1,0 +1,48 @@
+{
+  "$comment": "ESP32-S3 overlay,datasheet v2.2 Table 2-1(57 脚 = 56 边脚 + 中心裸露焊盘 GND)。注意物理脚号 ≠ GPIO 号:pad 名→GPIO 号按 esp-idf io_mux 映射(如 pin30 SPIHD=GPIO27,pin36 SPICLK_N=GPIO48)。GPIO26~37 接封装内 flash/PSRAM(R8/R16 八线变体用满)。全部 S3 芯片同为 QFN56,封装内 flash/PSRAM 差异不影响引脚。",
+  "target": "esp32s3",
+  "family": "ESP32-S3",
+  "memory": { "ramKb": 512, "flashKb": null },
+  "flags": {
+    "strapping": [0, 3, 45, 46],
+    "flash": [26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37],
+    "usb": [19, 20],
+    "jtag": [39, 40, 41, 42]
+  },
+  "packages": [
+    {
+      "id": "QFN56",
+      "kind": "chip",
+      "package": "QFN56 (7×7)",
+      "packageKind": "quad",
+      "pinCount": 57,
+      "parts": [
+        { "mpn": "ESP32-S3", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-S3FN8", "status": "Active", "temperature": [-40, 85] },
+        { "mpn": "ESP32-S3RH2", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-S3R8", "status": "Active", "temperature": [-40, 65] },
+        { "mpn": "ESP32-S3R16V", "status": "Active", "temperature": [-40, 65] },
+        { "mpn": "ESP32-S3FH4R2", "status": "Active", "temperature": [-40, 85] },
+        { "mpn": "ESP32-S3R8V", "status": "EOL", "temperature": [-40, 65] },
+        { "mpn": "ESP32-S3R2", "status": "EOL", "temperature": [-40, 85] }
+      ],
+      "pinMap": {
+        "1": "LNA_IN", "2": "VDD3P3", "3": "VDD3P3", "4": "CHIP_PU",
+        "5": "GPIO0", "6": "GPIO1", "7": "GPIO2", "8": "GPIO3",
+        "9": "GPIO4", "10": "GPIO5", "11": "GPIO6", "12": "GPIO7",
+        "13": "GPIO8", "14": "GPIO9", "15": "GPIO10", "16": "GPIO11",
+        "17": "GPIO12", "18": "GPIO13", "19": "GPIO14", "20": "VDD3P3_RTC",
+        "21": "GPIO15", "22": "GPIO16", "23": "GPIO17", "24": "GPIO18",
+        "25": "GPIO19", "26": "GPIO20", "27": "GPIO21", "28": "GPIO26",
+        "29": "VDD_SPI", "30": "GPIO27", "31": "GPIO28", "32": "GPIO29",
+        "33": "GPIO30", "34": "GPIO31", "35": "GPIO32", "36": "GPIO48",
+        "37": "GPIO47", "38": "GPIO33", "39": "GPIO34", "40": "GPIO35",
+        "41": "GPIO36", "42": "GPIO37", "43": "GPIO38", "44": "GPIO39",
+        "45": "GPIO40", "46": "VDD3P3_CPU", "47": "GPIO41", "48": "GPIO42",
+        "49": "GPIO43", "50": "GPIO44", "51": "GPIO45", "52": "GPIO46",
+        "53": "XTAL_N", "54": "XTAL_P", "55": "VDDA", "56": "VDDA", "57": "GND"
+      }
+    }
+  ],
+  "source": "ESP32-S3 Series Datasheet v2.2, Tables 1-1 (ordering), 2-1 (pin overview), 3-x strapping; pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf"
+}

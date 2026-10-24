@@ -1,0 +1,36 @@
+{
+  "$comment": "ESP32-C2(ESP8684)overlay,datasheet v2.3 Table 2(QFN24 = 25 脚含中心裸露焊盘 GND,14 个 GPIO)。全系封装内 flash(2/4MB),SPI flash pad(GPIO11~17)不外接。pad 名→GPIO 号按 esp-idf io_mux(XTAL_32K_P/N=GPIO0/1、MTMS/MTDI/MTCK/MTDO=GPIO4~7、U0RXD/TXD=GPIO19/20)。无 USB-JTAG。",
+  "target": "esp32c2",
+  "family": "ESP32-C2",
+  "memory": { "ramKb": 272, "flashKb": null },
+  "flags": {
+    "strapping": [8, 9],
+    "flash": [],
+    "usb": [],
+    "jtag": [4, 5, 6, 7]
+  },
+  "packages": [
+    {
+      "id": "QFN24",
+      "kind": "chip",
+      "package": "QFN24 (4×4)",
+      "packageKind": "quad",
+      "pinCount": 25,
+      "parts": [
+        { "mpn": "ESP8684H2X", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP8684H4X", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP8684H2", "status": "EOL", "temperature": [-40, 105] },
+        { "mpn": "ESP8684H4", "status": "EOL", "temperature": [-40, 105] }
+      ],
+      "pinMap": {
+        "1": "ANT", "2": "VDDA3P3", "3": "VDDA3P3", "4": "GPIO0", "5": "GPIO1",
+        "6": "GPIO2", "7": "CHIP_EN", "8": "GPIO3", "9": "GPIO4", "10": "GPIO5",
+        "11": "VDD3P3_RTC", "12": "GPIO6", "13": "GPIO7", "14": "GPIO8",
+        "15": "GPIO9", "16": "GPIO10", "17": "VDD3P3_CPU", "18": "GPIO18",
+        "19": "GPIO19", "20": "GPIO20", "21": "VDDA", "22": "XTAL_N",
+        "23": "XTAL_P", "24": "VDDA", "25": "GND"
+      }
+    }
+  ],
+  "source": "ESP8684 Series Datasheet v2.3, Tables 1 (ordering), 2 (pin overview), 10 (strapping); pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp8684_datasheet_en.pdf"
+}

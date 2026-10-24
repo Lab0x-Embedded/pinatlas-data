@@ -1,0 +1,70 @@
+{
+  "$comment": "ESP32 (classic) overlay,datasheet v5.3 Table 2-1(49 脚 = 48 边脚 + 中心裸露焊盘 GND)。QFN48 5×5 与 6×6 引脚编号相同,仅封装尺寸不同。pad 别名(SENSOR_VP/MTMS/SD_CMD…)由 esp-idf pads 表自动带出。",
+  "target": "esp32",
+  "family": "ESP32",
+  "memory": { "ramKb": 520, "flashKb": null },
+  "flags": {
+    "strapping": [0, 2, 5, 12, 15],
+    "flash": [6, 7, 8, 9, 10, 11],
+    "usb": [],
+    "jtag": [12, 13, 14, 15],
+    "input-only": [34, 35, 36, 37, 38, 39]
+  },
+  "packages": [
+    {
+      "id": "QFN48-5x5",
+      "kind": "chip",
+      "package": "QFN48 (5×5)",
+      "packageKind": "quad",
+      "pinCount": 49,
+      "parts": [
+        { "mpn": "ESP32-D0WD-V3", "status": "Active" },
+        { "mpn": "ESP32-D0WDRH2-V3", "status": "Active" },
+        { "mpn": "ESP32-D0WDR2-V3", "status": "EOL" },
+        { "mpn": "ESP32-U4WDH", "status": "Active" },
+        { "mpn": "ESP32-D0WD", "status": "NRND" },
+        { "mpn": "ESP32-S0WD", "status": "NRND" }
+      ],
+      "pinMap": {
+        "1": "VDDA", "2": "LNA_IN", "3": "VDD3P3", "4": "VDD3P3",
+        "5": "GPIO36", "6": "GPIO37", "7": "GPIO38", "8": "GPIO39",
+        "9": "CHIP_PU", "10": "GPIO34", "11": "GPIO35", "12": "GPIO32",
+        "13": "GPIO33", "14": "GPIO25", "15": "GPIO26", "16": "GPIO27",
+        "17": "GPIO14", "18": "GPIO12", "19": "VDD3P3_RTC", "20": "GPIO13",
+        "21": "GPIO15", "22": "GPIO2", "23": "GPIO0", "24": "GPIO4",
+        "25": "GPIO16", "26": "VDD_SDIO", "27": "GPIO17", "28": "GPIO9",
+        "29": "GPIO10", "30": "GPIO11", "31": "GPIO6", "32": "GPIO7",
+        "33": "GPIO8", "34": "GPIO5", "35": "GPIO18", "36": "GPIO23",
+        "37": "VDD3P3_CPU", "38": "GPIO19", "39": "GPIO22", "40": "GPIO3",
+        "41": "GPIO1", "42": "GPIO21", "43": "VDDA", "44": "XTAL_N",
+        "45": "XTAL_P", "46": "VDDA", "47": "CAP2", "48": "CAP1", "49": "GND"
+      }
+    },
+    {
+      "id": "QFN48-6x6",
+      "kind": "chip",
+      "package": "QFN48 (6×6)",
+      "packageKind": "quad",
+      "pinCount": 49,
+      "parts": [
+        { "mpn": "ESP32-D0WDQ6-V3", "status": "NRND" },
+        { "mpn": "ESP32-D0WDQ6", "status": "NRND" }
+      ],
+      "pinMap": {
+        "1": "VDDA", "2": "LNA_IN", "3": "VDD3P3", "4": "VDD3P3",
+        "5": "GPIO36", "6": "GPIO37", "7": "GPIO38", "8": "GPIO39",
+        "9": "CHIP_PU", "10": "GPIO34", "11": "GPIO35", "12": "GPIO32",
+        "13": "GPIO33", "14": "GPIO25", "15": "GPIO26", "16": "GPIO27",
+        "17": "GPIO14", "18": "GPIO12", "19": "VDD3P3_RTC", "20": "GPIO13",
+        "21": "GPIO15", "22": "GPIO2", "23": "GPIO0", "24": "GPIO4",
+        "25": "GPIO16", "26": "VDD_SDIO", "27": "GPIO17", "28": "GPIO9",
+        "29": "GPIO10", "30": "GPIO11", "31": "GPIO6", "32": "GPIO7",
+        "33": "GPIO8", "34": "GPIO5", "35": "GPIO18", "36": "GPIO23",
+        "37": "VDD3P3_CPU", "38": "GPIO19", "39": "GPIO22", "40": "GPIO3",
+        "41": "GPIO1", "42": "GPIO21", "43": "VDDA", "44": "XTAL_N",
+        "45": "XTAL_P", "46": "VDDA", "47": "CAP2", "48": "CAP1", "49": "GND"
+      }
+    }
+  ],
+  "source": "ESP32 Series Datasheet v5.3, Tables 1-1 (ordering), 2-1 (pin overview), 3-1 (strapping) — https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf"
+}

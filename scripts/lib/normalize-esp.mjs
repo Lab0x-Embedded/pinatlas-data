@@ -15,9 +15,14 @@ import { SCHEMA_VERSION } from './normalize.mjs'
 const GPIO_RE = /^GPIO(\d+)$/
 
 // IO-MUX function tokens → {peripheral, signal, type}. Order matters (first match wins).
+// 经典 esp32 的老命名(HSPI*/VSPI*/HS1_*/HS2_*/SD_*/EMAC_*)与 C3+ 的新命名并存。
 const FUNCTION_RULES = [
   [/^FSPI(CLK|Q|D|CS\d+|HD|WP)$/, (m) => ({ peripheral: 'FSPI', signal: m[1], type: 'spi' })],
   [/^SPI(CLK|Q|D|CS\d+|HD|WP)$/, (m) => ({ peripheral: 'SPI1', signal: m[1], type: 'spi' })],
+  [/^(?:HSPI|VSPI)(CLK|Q|D|HD|WP|CS0)$/, (m) => ({ peripheral: 'SPI2', signal: m[1], type: 'spi' })],
+  [/^(HS1|HS2)_(.+)$/, (m) => ({ peripheral: `SDIO${m[1].slice(2)}`, signal: m[2], type: 'other' })],
+  [/^SD_(.+)$/, (m) => ({ peripheral: 'SDIO', signal: m[1], type: 'other' })],
+  [/^EMAC_(.+)$/, (m) => ({ peripheral: 'EMAC', signal: m[1], type: 'other' })],
   [/^U(\d)(RXD|TXD|CTS|RTS|DSR|DTR)$/, (m) => ({ peripheral: `UART${m[1]}`, signal: m[2], type: 'uart' })],
   [/^MTCK$/, () => ({ peripheral: 'JTAG', signal: 'TCK', type: 'system' })],
   [/^MTMS$/, () => ({ peripheral: 'JTAG', signal: 'TMS', type: 'system' })],
@@ -52,7 +57,7 @@ const splitEspSignal = (name) => {
 const PIN_TYPE_BY_NAME = [
   [/^GND/, 'ground'],
   [/^VDD|^VCC|^VBAT/, 'power'],
-  [/^CHIP_EN|^EN$|^RST/, 'reset'],
+  [/^CHIP_EN|^CHIP_PU|^EN$|^RST/, 'reset'],
   [/^XTAL/, 'clock'],
   [/^LNA_IN|^RF/, 'other'],
   [/^NC$/, 'nc']

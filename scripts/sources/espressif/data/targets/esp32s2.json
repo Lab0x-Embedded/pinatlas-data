@@ -1,0 +1,45 @@
+{
+  "$comment": "ESP32-S2 overlay,datasheet v1.9 Table 2-1(QFN56 = 56 脚,该表未给中心裸露焊盘编号)。pad 名→GPIO 号按 esp-idf io_mux(XTAL_32K_P/N=GPIO15/16、DAC_1/2=GPIO17/18、SPICS1=GPIO26、SPIHD=27、SPIWP=28、SPICS0=29、SPICLK=30、SPIQ=31、SPID=32、MTCK=39、MTDO=40、MTDI=41、MTMS=42、U0TXD=43、U0RXD=44)。GPIO26~32 接封装内/外 flash。",
+  "target": "esp32s2",
+  "family": "ESP32-S2",
+  "memory": { "ramKb": 320, "flashKb": null },
+  "flags": {
+    "strapping": [0, 45, 46],
+    "flash": [26, 27, 28, 29, 30, 31, 32],
+    "usb": [],
+    "jtag": [39, 40, 41, 42]
+  },
+  "packages": [
+    {
+      "id": "QFN56",
+      "kind": "chip",
+      "package": "QFN56 (5×5)",
+      "packageKind": "quad",
+      "pinCount": 56,
+      "parts": [
+        { "mpn": "ESP32-S2", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-S2FH4", "status": "Active", "temperature": [-40, 105] },
+        { "mpn": "ESP32-S2FN4R2", "status": "Active", "temperature": [-40, 85] },
+        { "mpn": "ESP32-S2R2", "status": "Active", "temperature": [-40, 85] },
+        { "mpn": "ESP32-S2FH2", "status": "EOL", "temperature": [-40, 105] }
+      ],
+      "pinMap": {
+        "1": "VDDA", "2": "LNA_IN", "3": "VDD3P3", "4": "VDD3P3",
+        "5": "GPIO0", "6": "GPIO1", "7": "GPIO2", "8": "GPIO3",
+        "9": "GPIO4", "10": "GPIO5", "11": "GPIO6", "12": "GPIO7",
+        "13": "GPIO8", "14": "GPIO9", "15": "GPIO10", "16": "GPIO11",
+        "17": "GPIO12", "18": "GPIO13", "19": "GPIO14", "20": "VDD3P3_RTC",
+        "21": "GPIO15", "22": "GPIO16", "23": "GPIO17", "24": "GPIO18",
+        "25": "GPIO19", "26": "GPIO20", "27": "VDD3P3_RTC_IO", "28": "GPIO21",
+        "29": "GPIO26", "30": "VDD_SPI", "31": "GPIO27", "32": "GPIO28",
+        "33": "GPIO29", "34": "GPIO30", "35": "GPIO31", "36": "GPIO32",
+        "37": "GPIO33", "38": "GPIO34", "39": "GPIO35", "40": "GPIO36",
+        "41": "GPIO37", "42": "GPIO38", "43": "GPIO39", "44": "GPIO40",
+        "45": "VDD3P3_CPU", "46": "GPIO41", "47": "GPIO42", "48": "GPIO43",
+        "49": "GPIO44", "50": "GPIO45", "51": "VDDA", "52": "XTAL_N",
+        "53": "XTAL_P", "54": "VDDA", "55": "GPIO46", "56": "CHIP_PU"
+      }
+    }
+  ],
+  "source": "ESP32-S2 Series Datasheet v1.9, Tables 1-1 (ordering), 2-1 (pin overview), 3-1 (strapping); pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp32-s2_datasheet_en.pdf"
+}
