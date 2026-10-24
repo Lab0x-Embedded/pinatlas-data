@@ -14,7 +14,15 @@
 //
 // What esp-idf does NOT carry machine-readably: physical package pin numbers (datasheet PDFs
 // only) and strapping/flash-flags — those live in the curated overlays under data/targets/.
-import { fetchText } from '../http.mjs'
+import { readFile, readdir } from 'node:fs/promises'
+import { join, dirname, resolve as pathResolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import { fetchText, resolveLatestTag, mapPool } from '../http.mjs'
+import { validateUnified, VALIDATION_RULES } from '../normalize.mjs'
+import { normalizeEsp } from '../normalize-esp.mjs'
+
+const ROOT = pathResolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
 export const TARGETS = [
   'esp32', 'esp32s2', 'esp32s3',
@@ -168,6 +176,111 @@ export async function loadTarget(ref, target, transport) {
       adc: adc ? parseAdcChannels(adc.text) : new Map(),
       touch: touch ? parseTouchChannels(touch.text) : new Map(),
       caps: socCaps ? parseSocCaps(socCaps.text) : { gpioPinCount: null }
+    }
+  }
+}
+
+// ── source adapter (contract: see sync.mjs) ─────────────────────────────────────────────────────
+
+/** Read the curated overlay JSONs. Every overlay file present = one target we ship. */
+async function loadOverlays(vendorCfg) {
+  const dir = pathResolve(ROOT, vendorCfg.overlay)
+  const out = new Map()
+  for (const f of (await readdir(dir)).filter((n) => n.endsWith('.json')).sort()) {
+    out.set(f.replace(/\.json$/, ''), JSON.parse(await readFile(join(dir, f), 'utf8')))
+  }
+  return out
+}
+
+export async function run(ctx) {
+  const { vendorCfg, opts, transport, net, log } = ctx
+  const primary = vendorCfg.primary
+
+  const rev = await resolveLatestTag(primary.repo, transport)
+  if (!rev.resolved) return { fatal: `FATAL: cannot resolve latest release of ${primary.repo} (${rev.error})` }
+  log(`  esp-idf    ${primary.repo}@${rev.ref}`)
+
+  const overlays = await loadOverlays(vendorCfg)
+  const unknown = [...overlays.keys()].filter((t) => !TARGETS.includes(t))
+  const missing = TARGETS.filter((t) => !overlays.has(t))
+  log(`  overlay:   ${overlays.size}/${TARGETS.length} targets` +
+      (missing.length ? ` (no overlay yet: ${missing.join(', ')})` : '') +
+      (unknown.length ? ` [UNKNOWN in TARGETS: ${unknown.join(', ')}]` : ''))
+
+  // plan: one chip per (target × overlay package), filtered like the ST pipeline filters refs
+  let planned = []
+  for (const [target, overlay] of overlays) {
+    for (const pkg of overlay.packages) planned.push({ target, overlay, pkg, chip: `${overlay.family}-${pkg.id}` })
+  }
+  if (opts.ref) planned = planned.filter((p) => p.chip === opts.ref)
+  if (opts.line) planned = planned.filter((p) => p.overlay.family.toLowerCase().startsWith(String(opts.line).toLowerCase()))
+  planned.sort((a, b) => a.chip.localeCompare(b.chip))
+  if (opts.limit) planned = planned.slice(0, opts.limit)
+  if (!planned.length) return { fatal: 'FATAL: nothing to sync' }
+  log(`  chips:     ${planned.length}${opts.ref ? ` (ref ${opts.ref})` : ''}${opts.line ? ` (line ${opts.line})` : ''}`)
+
+  // esp-idf headers are shared per target — fetch each once (few small files, low concurrency)
+  const targets = [...new Set(planned.map((p) => p.target))]
+  const loaded = await mapPool(targets, Math.min(4, net.concurrency), async (t) => loadTarget(rev.ref, t, transport))
+  const byTarget = new Map()
+  const failures = []
+  for (const r of loaded) {
+    if (r.ok) byTarget.set(r.value.target, r.value)
+    else failures.push({ chip: r.item, stage: 'download-primary', error: r.error })
+  }
+
+  const warnings = []
+  const docs = new Map()
+  let validatedChips = 0
+  for (const { target, overlay, pkg, chip } of planned) {
+    const td = byTarget.get(target)
+    if (!td) continue // already recorded as a download failure above
+    if (td.parsed.caps.gpioPinCount && td.parsed.pads.size > td.parsed.caps.gpioPinCount) {
+      warnings.push(`${chip}: esp-idf pads (${td.parsed.pads.size}) exceed SOC_GPIO_PIN_COUNT (${td.parsed.caps.gpioPinCount}) — parser drift?`)
+    }
+    let unified
+    try {
+      unified = normalizeEsp({
+        target,
+        parsed: td.parsed,
+        overlay,
+        pkg,
+        vendorName: vendorCfg.vendorName,
+        upstreamMeta: {
+          primary: { repo: primary.repo, ref: rev.ref, path: Object.values(td.files), license: primary.license },
+          overlay: { path: `${vendorCfg.overlay}/${target}.json`, source: overlay.source ?? null }
+        }
+      })
+    } catch (err) {
+      failures.push({ chip, stage: 'normalise', error: err?.message || String(err) })
+      continue
+    }
+    const { errors, warnings: warns, checked } = validateUnified(unified)
+    for (const w of warns) warnings.push(`${chip}: ${w}`)
+    if (errors.length) {
+      failures.push({ chip, stage: 'validate', error: errors.join('; ') })
+      continue
+    }
+    validatedChips++
+    if (checked.length !== VALIDATION_RULES.length) warnings.push(`${chip}: validator rule set mismatch`)
+    docs.set(chip, unified)
+  }
+
+  return {
+    upstream: {
+      primary: { repo: primary.repo, branch: null, ref: rev.ref, resolved: rev.resolved, commitDate: rev.date, kind: 'release-tag' },
+      enrichment: { repo: null, requested: false }
+    },
+    considered: planned.length,
+    docs,
+    failures,
+    warnings,
+    afMisses: new Set(),
+    enrichInfo: null,
+    skipped: failures.filter((f) => f.stage === 'normalise' || f.stage === 'validate').length,
+    validation: {
+      checkedChips: validatedChips,
+      failures: failures.filter((f) => f.stage === 'validate').map((f) => ({ chip: f.chip, error: f.error }))
     }
   }
 }

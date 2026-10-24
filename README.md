@@ -1,10 +1,12 @@
 # pinatlas-data
 
-PinAtlas 的统一芯片引脚数据集：把上游原始数据转成**一套固定格式的 JSON**，供 [PinAtlas](https://github.com/Lab0x-Embedded/pinatlas) 前端直接读取。
+PinAtlas 的统一芯片引脚数据集：把上游原始数据转成**一套固定格式的 JSON**，供 [PinAtlas](https://github.com/Lab0x-Embedded/pinatlas) 前端直接读取。当前覆盖 **STMicroelectronics STM32** 与 **Espressif ESP32** 两个厂商。
 
 每周一 UTC 03:17 由 GitHub Actions 自动同步，也可手动触发（Actions → sync-data → Run workflow）。
 
 ## 上游与分工
+
+**ST（STM32）**
 
 | 角色 | 仓库 | 提供什么 |
 |---|---|---|
@@ -13,21 +15,32 @@ PinAtlas 的统一芯片引脚数据集：把上游原始数据转成**一套固
 
 两个上游都不完整，实测：`stm-db` 有、embassy 没有的型号 117 个；embassy 有、stm-db 没有的 190 个。缺 AF 的型号（例如整个 STM32F1 系列）在数据里 `af` 为 `null`，不要当成 0。
 
+**Espressif（ESP32）**
+
+| 角色 | 来源 | 提供什么 |
+|---|---|---|
+| 主源 | [espressif/esp-idf](https://github.com/espressif/esp-idf)（pin 到最新稳定 release） | `io_mux_reg.h` 的 pad↔GPIO↔IOMUX 功能选择表（= ESP 版 AF 号）、`gpio_sig_map.h` 的 GPIO 矩阵信号表、ADC/touch 固定通道 |
+| overlay | 本仓库 `scripts/sources/espressif/data/targets/`（手工维护） | 封装/模组**物理脚号**（datasheet 抄录，每份带出处）、strapping/flash/USB/JTAG 标记 |
+
+ESP32 没有 ST 式的 AF 号：IOMUX 固定功能带 `MCU_SEL` 选择值（schema v1.4.0 起 `af` 字段泛化为"mux 功能选择值"），其余外设信号经 GPIO 矩阵可路由到任意通用 GPIO，放 chip 级 `routing.signals`（不逐 pin 展开）。
+
 ## 数据布局
 
 ```
 data/
-  index.json                 清单：上游 commit、总量、分片列表
-  index/STM32F1.json         按系列分片的索引（型号/封装/引脚数/flash）
-  st/STM32F1/STM32F103C8Tx.json   一个封装一个文件（统一 JSON）
-  meta.json                  本次同步的统计、失败清单、AF 覆盖率
+  index.json                     清单：vendors.{st,espressif} 各自的上游 ref/总量/分片（顶层旧字段镜像 st 段，前端兼容）
+  index/st/STM32F1.json          按厂商+系列分片的索引（型号/封装/引脚数/flash/mpns）
+  index/espressif/ESP32-C3.json
+  st/STM32F1/STM32F103C8Tx.json        一个封装一个文件（统一 JSON）
+  espressif/ESP32-C3/ESP32-C3-QFN32.json
+  meta.json                       本次同步的统计、失败清单、AF 覆盖率（分厂商段 + 聚合）
 ```
 
 前端用法（固定 tag，不要跟 `main`，否则 jsDelivr 缓存会滞后）：
 
 ```js
 const base = 'https://cdn.jsdelivr.net/gh/Lab0x-Embedded/pinatlas-data@<tag>/data'
-const index = await (await fetch(`${base}/index/STM32F1.json`)).json()
+const index = await (await fetch(`${base}/index/st/STM32F1.json`)).json()
 const chip  = await (await fetch(`${base}/${index.chips[0].part}`)).json()
 ```
 
@@ -36,15 +49,17 @@ const chip  = await (await fetch(`${base}/${index.chips[0].part}`)).json()
 ## 本地运行
 
 ```bash
-node scripts/sync.mjs                                  # 全量同步（约 240 MB 下载）
-node scripts/sync.mjs --line STM32F1 --limit 40 --af    # 小范围试跑
-node scripts/sync.mjs --ref STM32F103C8Tx --af          # 单个型号
-node scripts/sync.mjs --dry-run --line STM32F1          # 只转换+校验，不写盘
+node scripts/sync.mjs                                        # 全部厂商（ST 约 240 MB 下载 + ESP32 少量 header）
+node scripts/sync.mjs --vendor st --line STM32F1 --limit 40 --af   # 只跑 ST 小范围
+node scripts/sync.mjs --vendor espressif --ref ESP32-C3-QFN32      # 只跑 ESP32 单个封装
+node scripts/sync.mjs --dry-run --line STM32F1              # 只转换+校验，不写盘
 ```
 
-需要 Node ≥ 20，**零依赖**。网络层默认走 `curl`（Node 的 `fetch` 不认 `HTTPS_PROXY`，而本机/CI 两种环境都要能跑）；`--fetch` 可切回内置 fetch。
+需要 Node ≥ 22，**零依赖**。网络层默认走 `curl`（Node 的 `fetch` 不认 `HTTPS_PROXY`，而本机/CI 两种环境都要能跑）；`--fetch` 可切回内置 fetch。
 
-常用参数：`--concurrency`、`--tries`、`--out`、`--no-af`、`--primary-sha` / `--enrichment-sha`（指定上游 commit）、`--json`（机器可读摘要）。
+常用参数：`--vendor`（all 或逗号列表）、`--line`、`--ref`、`--concurrency`、`--tries`、`--out`、`--no-af`、`--primary-sha` / `--enrichment-sha`（指定上游 commit）、`--json`（机器可读摘要）。
+
+ESP32 覆盖进度：overlay 逐 target 补齐中（`--vendor espressif` 跑一次即可看到"no overlay yet"清单）；封装脚号抄自各 target 的 datasheet，出处记录在 overlay JSON 的 `source` 字段。
 
 ## 设计约束（都是实测踩出来的）
 
@@ -63,4 +78,4 @@ node scripts/sync.mjs --dry-run --line STM32F1          # 只转换+校验，不
 
 ## 来源与许可
 
-脚本 MIT（见 LICENSE）。数据是 ST 文档衍生的技术信息：主源仓库声明其数据"probably do not fall under copyright"，补源生成仓库没有 LICENSE 文件。本仓库仅做格式转换与再分发，版权归 STMicroelectronics；详见 [NOTICE](NOTICE)。
+脚本 MIT（见 LICENSE）。ST 数据是 ST 文档衍生的技术信息：主源仓库声明其数据"probably do not fall under copyright"，补源生成仓库没有 LICENSE 文件。ESP32 数据来自 esp-idf 头文件（Apache-2.0 OR MIT）与 Espressif datasheet 抄录的封装脚号（事实性引脚分配）。本仓库仅做格式转换与再分发，版权归各自厂商；详见 [NOTICE](NOTICE)。

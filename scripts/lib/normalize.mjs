@@ -18,8 +18,11 @@
 const SYSTEM_PREFIXES = new Set(['RCC', 'SYS'])
 
 /** 统一 schema 版本（normalize.mjs 写进芯片文档、write.mjs 写进索引与清单、sync.mjs 写进
- *  meta.json，必须同源）。1.2.0：EXTI 归一；1.3.0：索引条目加 `mpns[]`（订货号搜索）。 */
-export const SCHEMA_VERSION = '1.3.0'
+ *  meta.json，必须同源）。1.2.0：EXTI 归一；1.3.0：索引条目加 `mpns[]`（订货号搜索）；
+ *  1.4.0：多厂商（Espressif/ESP32）——`af` 语义泛化为“mux 功能选择值”（STM32 AF 号 /
+ *  ESP32 IO-MUX MCU_SEL），新增可选 chip 级 `routing`（GPIO 矩阵信号表）与 pin 级
+ *  `flags[]`（strapping/flash/usb/jtag/input-only/output-only）、packageKind 新增 'module'。 */
+export const SCHEMA_VERSION = '1.4.0'
 
 /**
  * 上游把「模拟能力 + EXTI 线」合成了一个 token。实测全库 63979 个，只有 5 种形态：

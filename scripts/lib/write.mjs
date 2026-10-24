@@ -5,7 +5,7 @@
 // compact vs roughly double that pretty-printed, and the frontend fetches one small file per
 // chip anyway (2.4 KB gzipped on average), so pretty-printing buys nothing but repo weight.
 import { mkdir, readFile, readdir, writeFile, stat } from 'node:fs/promises'
-import { dirname, join, relative, sep } from 'node:path'
+import { basename, dirname, join, relative, sep } from 'node:path'
 
 import { SCHEMA_VERSION } from './normalize.mjs'
 
@@ -77,6 +77,8 @@ async function buildVendorIndex({ outDir, indexPath, vendorSlug, vendorName, gen
     } catch {
       continue
     }
+    // Defence against stray JSON under the vendor tree: only chip documents count.
+    if (!doc || !Array.isArray(doc.pins) || typeof doc.chip !== 'string') continue
     chipCount++
     pinCount += doc.pinCount || 0
     const mpns = [...new Set((doc.parts || []).map((p) => p?.mpn).filter(Boolean))]
@@ -145,10 +147,14 @@ async function buildVendorIndex({ outDir, indexPath, vendorSlug, vendorName, gen
  *   listed here are indexed too, with `upstream: null`.
  */
 export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlugs, vendorNames, upstreams, generatedAt }) {
-  // Vendor dirs present on disk (a partial --vendor run must not drop the others from the index).
+  // Vendor dirs present on disk (a partial --vendor run must not drop the others from the
+  // index). The index directory itself lives under outDir and must not become a phantom vendor.
   let diskSlugs = []
   try {
-    diskSlugs = (await readdir(outDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name)
+    const indexDirName = basename(indexPath || 'index')
+    diskSlugs = (await readdir(outDir, { withFileTypes: true }))
+      .filter((e) => e.isDirectory() && e.name !== indexDirName)
+      .map((e) => e.name)
   } catch (err) {
     if (err.code !== 'ENOENT') throw err
   }

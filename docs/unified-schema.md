@@ -1,23 +1,25 @@
-# 统一 JSON Schema（v1.3.0）
+# 统一 JSON Schema（v1.4.0）
 
-前端只读这一套格式；上游差异全部由 `scripts/lib/normalize.mjs` 吃掉。
+前端只读这一套格式；上游差异由各厂商的 normalizer 吃掉（ST：`scripts/lib/normalize.mjs`，
+Espressif/ESP32：`scripts/lib/normalize-esp.mjs`）。
 
 ## 顶层
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `schemaVersion` | string | 当前 `1.3.0`（`normalize.mjs` 的 `SCHEMA_VERSION` 单点定义，芯片文档 / 索引 / 清单 / meta.json 同源） |
-| `vendor` | string | `STMicroelectronics` |
-| `chip` | string | 上游 ref（= stm-db 文件名），如 `STM32F103C8Tx`。**一个封装一个 id**，不是"一颗芯片" |
-| `displayName` | string | 上游展示名，如 `STM32F103C(8-B)Tx` |
-| `family` / `line` | string\|null | `STM32F1` / `STM32F103` |
-| `die` | string\|null | 上游 die 标识（`DIE410`）。**密度+外设集相同的一组 ref 共享一个 die**，是"封装切换"的分组键 |
-| `package` | string | `LQFP48` / `TFBGA361` / `WLCSP49` … |
-| `packageKind` | `quad`\|`dual`\|`grid`\|`unknown` | 决定引脚怎么摆：四边/双列/网格 |
-| `pinCount` | number | **合并变体后的物理引脚数**（不是上游数组长度） |
-| `memory` | object | `flashKb` `ramKb` `ioCount` `voltage` `temperature` |
-| `parts` | array | 订货号 `mpn` + `status`（Active/Proposal…）+ 温度区间 |
-| `source` | object | 上游仓库与 commit，便于追溯 |
+| `schemaVersion` | string | 当前 `1.4.0`（`normalize.mjs` 的 `SCHEMA_VERSION` 单点定义，芯片文档 / 索引 / 清单 / meta.json 同源） |
+| `vendor` | string | `STMicroelectronics` / `Espressif Systems`（v1.4.0 起多厂商） |
+| `chip` | string | 唯一 id。ST=上游 ref（= stm-db 文件名，如 `STM32F103C8Tx`）；ESP32=`<家族>-<封装/模组>`（如 `ESP32-C3-QFN32`）。**一个封装一个 id**，不是"一颗芯片" |
+| `displayName` | string | 展示名，如 `STM32F103C(8-B)Tx` / `ESP32-C3 QFN32 (5×5)` |
+| `family` / `line` | string\|null | ST：`STM32F1` / `STM32F103`；ESP32：family=line=target（`ESP32-C3`） |
+| `die` | string\|null | ST：上游 die 标识（`DIE410`）；ESP32：target 名（`esp32c3`） |
+| `package` | string | `LQFP48` / `TFBGA361` / `QFN32 (5×5)` … |
+| `packageKind` | `quad`\|`dual`\|`grid`\|`module`\|`unknown` | 决定引脚怎么摆：四边/双列/网格/模组（v1.4.0 新增 `module`，ESP32 WROOM/MINI 类贴片模组） |
+| `pinCount` | number | **合并变体后的物理引脚数**。ESP32 的 QFN 计入中心裸露焊盘（QFN32 = 33 脚，校验器的"quad 应整除 4"告警对该情形是预期噪声） |
+| `memory` | object | `flashKb` `ramKb` `ioCount` `voltage` `temperature`（ESP32 封装内 flash 可选时 `flashKb` 为 null，容量看 `parts[].mpn`） |
+| `parts` | array | 订货号 `mpn` + `status`（Active/Proposal/EOL/NRND…）+ 温度区间。ESP32 模组的 flash/PSRAM 容量变体（N8/N16/R2…）引脚相同，共用一个 chip 条目 |
+| `source` | object | 上游仓库与 ref，便于追溯。ESP32 额外带 `overlay`（封装脚号抄录出处 datasheet 版本） |
+| `routing` | object | **v1.4.0 新增，仅 ESP32**：GPIO 矩阵信号表，见下 |
 | `pins` | array | 见下 |
 
 ## pin 对象
@@ -31,8 +33,9 @@
   "pad": "PC13",            // 焊盘名（= primary，保留字段名兼容旧前端）
   "name": "PC13-TAMPER-RTC",       // 上游原始引脚名，保留可追溯
   "type": "gpio",           // 语义类型，见下表
-  "rawType": "I/O",         // 上游原始类型，保留以便追溯
+  "rawType": "I/O",         // 上游原始类型，保留以便追溯（ESP32 无此字段）
   "osc": true,              // 可选：晶振/时钟相关（名字含 -OSC 或功能含 RCC_OSC*）
+  "flags": ["strapping"],   // v1.4.0 新增，仅 ESP32：strapping | flash | usb | jtag | input-only | output-only（overlay 维护）
   "functions": [
     { "peripheral": "TIM2", "signal": "CH1", "af": 2, "type": "timer" },
     { "peripheral": "EXTI", "signal": "EXTI9", "af": null, "type": "exti", "system": true },
@@ -114,9 +117,10 @@ v1.1.0 按原样拆 → 详情面板出现 `DAC` 组下挂 `EXTI9` 这种假分�
 
 前端消费：`type: 'exti'` 的组单独成块（排序在可配置外设之后、`RCC/SYS` 之前），徽标文案「外部中断」。
 
-### 索引（`index.json` + `index/st/<family>.json`）
+### 索引（`index.json` + `index/<vendor>/<family>.json`，v1.4.0 起多厂商结构见末节）
 
-前端首屏只拉这两级：`index.json` 给 27 个家族分片清单（`shards[]` 的 `{family, count, path}`），
+前端首屏只拉这两级：`index.json` 给家族分片清单（顶层 `shards[]` 的 `{family, count, path}`；
+v1.4.0 起另有 `vendors.{slug}.shards`），
 家族分片给该家族的型号条目。条目字段（v1.3.0）：
 
 | 字段 | 说明 |
@@ -135,3 +139,50 @@ v1.1.0 按原样拆 → 详情面板出现 `DAC` 组下挂 `EXTI9` 这种假分�
 - 别名：I2S 家族（embassy 记在 `SPI<n>` 下：`SPI1 + I2S_CK` → `I2S1_CK`/`I2S1_SCK`），外设别名表 `FSMC↔FMC`、`SDIO↔SDMMC`、`ETH↔ETH1`；
 - 拿不到时为 `null`（**不是 0**）。整片 STM32F1 都是 null，因为 embassy 对 F1 没有 AF 数据；
 - 每次同步把未匹配 token 的前 40 个写进 `meta.json.afUnmatchedTop`，用于继续补别名。EXTI 线不参与（见 v1.2.0 的改动），所以这份清单只留真正待补的别名。
+
+### v1.4.0 的改动：多厂商（Espressif ESP32）与 `af` 语义泛化
+
+数据源（与 ST 的 stm-db/embassy 管道并列，source adapter 见 `scripts/lib/sources/espidf.mjs`）：
+
+- **pad/功能级**来自 esp-idf（Apache-2.0，pin 到最新稳定 release tag）：
+  - `io_mux_reg.h`：`IO_MUX_GPIOn_REG ↔ PERIPHS_IO_MUX_<pad>_U` 给出 GPIO↔pad 名（MTCK/U0TXD…），
+    `FUNC_<pad>_<功能> <MCU_SEL>` 是每个 pad 的 IO-MUX 固定功能选择表；
+  - `gpio_sig_map.h`：GPIO 矩阵信号表（`<SIG>_IN_IDX/_OUT_IDX`）；
+  - `adc_channel.h` / `touch_sensor_channel.h`：固定模拟通道。
+- **封装脚号** esp-idf 没有（datasheet PDF 独有），由版本化 overlay 维护：
+  `scripts/sources/espressif/data/targets/<target>.json`，每份记录 datasheet 版本出处；
+  strapping/flash/USB/JTAG 等启动角色标记也在 overlay（esp-idf 无机器可读表）。
+
+`af` 字段从此泛化为 **"mux 功能选择值"**：STM32 = AF 号，ESP32 = IO-MUX MCU_SEL。ESP32 的
+固定模拟通道（ADC/TOUCH/XTAL32K）与 ST 一致取 `af: null`。
+
+**GPIO 矩阵 ≠ AF 表**：ESP32 绝大多数外设信号可路由到任意通用 GPIO，逐 pin 展开会爆炸且
+失真，所以 pin 级 `functions[]` 只放 IO-MUX 固定功能 + 固定模拟通道，矩阵信号放 chip 级：
+
+```json
+"routing": {
+  "model": "gpio-matrix",
+  "signals": [
+    { "peripheral": "I2C0", "signal": "SCL", "type": "i2c", "direction": "in",  "defaultGpio": 22 },
+    { "peripheral": "I2C0", "signal": "SCL", "type": "i2c", "direction": "out", "defaultGpio": 22 }
+  ]
+}
+```
+
+`defaultGpio` 来自 io_mux_reg.h 的 `<SIG>_GPIO_NUM` 宏（SPI/SDIO/USB 等默认脚位），可省略。
+前端消费建议：pin 详情 = `functions[]`（IO-MUX 直连）+ 该 pin 可路由的提示；搜索外设信号时
+查 `routing.signals`（可路由到任意非 input-only GPIO）。
+
+IOMUX 功能名拆分规则（`normalize-esp.mjs` 的 `splitEspFunction`）：`FSPICLK→FSPI/CLK`、
+`SPIQ→SPI1/Q`（封装内 flash 总线）、`U0TXD→UART0/TXD`、`MTCK→JTAG/TCK`；未知 token 保底
+`peripheral=signal=token`。矩阵信号名另加 `I2CEXT0_SCL→I2C0/SCL` 等（`splitEspSignal`）。
+
+ESP32 特有校验：overlay pinMap 引用的 GPIO 必须存在于 esp-idf pads 表（join 失败记 normalise
+failure），esp-idf pads 数超出 `SOC_GPIO_PIN_COUNT` 时告警（解析器漂移的哨兵）。
+
+### 索引（`index.json` + `index/<vendor>/<family>.json`）
+
+v1.4.0 起 `index.json` 增加顶层 `vendors: { st: {...}, espressif: {...} }`，每段 =
+`{vendor, vendorName, upstream, totals, shards}`；**原有顶层字段（vendor/upstream/totals/
+shards）继续镜像 `st` 段**（st 未参与该次运行时镜像第一个厂商），旧前端契约不变。
+分片路径改为 `index/<vendor>/<family>.json`（ST 的旧路径 `index/st/<family>.json` 不变）。

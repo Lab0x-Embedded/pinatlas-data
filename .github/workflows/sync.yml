@@ -16,8 +16,12 @@ on:
     - cron: '17 3 * * 1'
   workflow_dispatch:
     inputs:
+      vendor:
+        description: 'Vendors to sync (all, or comma list: st,espressif)'
+        required: false
+        default: 'all'
       line:
-        description: 'Only sync refs with this prefix (e.g. STM32F1); empty = all'
+        description: 'Only sync refs with this prefix (e.g. STM32F1, ESP32-C3); empty = all'
         required: false
         default: ''
       limit:
@@ -56,6 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           args=""
+          if [ -n "${{ inputs.vendor }}" ] && [ "${{ inputs.vendor }}" != "all" ]; then args="$args --vendor ${{ inputs.vendor }}"; fi
           if [ -n "${{ inputs.line }}" ]; then args="$args --line ${{ inputs.line }}"; fi
           if [ -n "${{ inputs.limit }}" ] && [ "${{ inputs.limit }}" != "0" ]; then args="$args --limit ${{ inputs.limit }}"; fi
           if [ "${{ inputs.af }}" = "false" ]; then args="$args --no-af"; fi
@@ -71,12 +76,14 @@ jobs:
             const lines = [
               "### pinatlas-data sync",
               "",
-              `- upstream primary: \`${m.upstream.primary.ref}\``,
-              `- upstream enrichment: \`${m.upstream.enrichment.ref || "disabled"}\``,
-              `- this run: ${m.run.written} written / ${m.run.unchanged} unchanged / ${m.run.failed} failed (${m.run.seconds}s)`,
-              `- this run AF coverage: ${(m.run.afCoverage * 100).toFixed(1)}% (${m.run.afFilled ?? "-"})`,
-              `- dataset: ${t.chips ?? "?"} chips, ${t.pins ?? "?"} pins, AF ${t.afCoverage != null ? (t.afCoverage * 100).toFixed(1) + "%" : "?"}`
+              `- dataset: ${t.chips ?? "?"} chips, ${t.pins ?? "?"} pins, AF ${t.afCoverage != null ? (t.afCoverage * 100).toFixed(1) + "%" : "?"}`,
+              `- this run: ${m.run.written} written / ${m.run.unchanged} unchanged / ${m.run.failed} failed (${m.run.seconds}s)`
             ];
+            for (const [slug, v] of Object.entries(m.vendors || {})) {
+              const up = v.upstream || {};
+              const enrich = up.enrichment && up.enrichment.repo ? `${up.enrichment.repo.split("/")[1]}@${up.enrichment.ref || "-"}` : "disabled";
+              lines.push(`- ${slug}: ${v.run.written} written / ${v.run.failed} failed, ${up.primary ? `${up.primary.repo.split("/")[1]}@${up.primary.ref}` : "?"} + ${enrich}, AF ${(v.run.afCoverage * 100).toFixed(1)}%`);
+            }
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
           '
 

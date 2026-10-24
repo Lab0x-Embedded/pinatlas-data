@@ -2,8 +2,10 @@ pinatlas-data
 =============
 
 The JSON files under data/ are converted, re-formatted technical information about
-STMicroelectronics microcontrollers. They are not authored here.
+STMicroelectronics and Espressif microcontrollers. They are not authored here.
 
+STMicroelectronics (STM32)
+--------------------------
 Primary source
 --------------
 LibrePCB/stm-db  https://github.com/LibrePCB/stm-db
@@ -18,13 +20,31 @@ embassy-rs/stm32-data-generated  https://github.com/embassy-rs/stm32-data-genera
   the underlying device data (alternate-function numbers, registers, RCC/interrupt/DMA
   metadata, memory layout) is derived from ST documentation.
 
+Espressif (ESP32)
+-----------------
+Primary source
+--------------
+espressif/esp-idf  https://github.com/espressif/esp-idf
+  Pad/GPIO maps, IO-MUX function-select tables and GPIO-matrix signal tables are parsed from
+  the per-target SoC headers (components/soc/<target>/…), licensed Apache-2.0 OR MIT.
+
+Curated overlays
+----------------
+scripts/sources/espressif/data/targets/*.json
+  Physical package/module pin assignments, strapping/flash/USB/JTAG pin roles transcribed
+  from the Espressif datasheets (factual pin assignments). Each overlay records its source
+  datasheet and revision in its "source" field.
+
 Trademarks and copyright
 ------------------------
 STM32, STM8 and STM32CubeMX are trademarks or registered trademarks of STMicroelectronics
-International NV or its affiliates. All device data remains the property of STMicroelectronics.
+International NV or its affiliates. All ST device data remains the property of
+STMicroelectronics. ESP32 and Espressif are trademarks of Espressif Systems (Shanghai) CO LTD.
+All Espressif device data remains the property of Espressif Systems.
 
 This repository only reorganises and redistributes that information in a uniform JSON shape.
 No license is granted for the data itself beyond what the upstream repositories permit, and
-nothing here implies endorsement by STMicroelectronics, LibrePCB or the Embassy project.
+nothing here implies endorsement by STMicroelectronics, Espressif, LibrePCB or the Embassy
+project.
 
 The scripts in scripts/ are licensed under the MIT license — see LICENSE.

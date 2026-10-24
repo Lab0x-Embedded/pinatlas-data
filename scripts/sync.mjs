@@ -29,10 +29,11 @@ import { githubToken, proxyUrl } from './lib/http.mjs'
 import { VALIDATION_RULES, SCHEMA_VERSION } from './lib/normalize.mjs'
 import { writeIfChanged, writeAlways, rebuildIndex, jsonText } from './lib/write.mjs'
 import { run as runStmdb } from './lib/sources/stmdb.mjs'
+import { run as runEspidf } from './lib/sources/espidf.mjs'
 
 const ROOT = pathResolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const SOURCES = { stmdb: runStmdb }
+const SOURCES = { stmdb: runStmdb, espidf: runEspidf }
 
 // ── args ────────────────────────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2)
@@ -101,7 +102,16 @@ for (const slug of selected) {
     net,
     log
   })
-  if (res.fatal) { console.error(res.fatal); process.exit(2) }
+  if (res.fatal) {
+    // A line/ref filter that matches nothing in ONE vendor must not abort a multi-vendor run
+    // (STM32F1 filters out every ESP32); an empty plan without filters is still fatal.
+    if (res.fatal.endsWith('nothing to sync') && (opts.line || opts.ref) && selected.length > 1) {
+      log(`  ${res.fatal.replace('FATAL: ', '')} — vendor ${slug} skipped`)
+      continue
+    }
+    console.error(res.fatal)
+    process.exit(2)
+  }
 
   const stat = { added: 0, updated: 0, unchanged: 0, skipped: res.skipped ?? 0, pins: 0, afSlots: 0, afFilled: 0 }
   const perFamily = new Map()

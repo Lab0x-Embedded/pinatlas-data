@@ -35,6 +35,17 @@
         ],
         "license": "no LICENSE file in the generated repo; data is derived from ST documentation — attribution only, no licence granted"
       }
+    },
+    "espressif": {
+      "vendorName": "Espressif Systems",
+      "source": "espidf",
+      "primary": {
+        "name": "Espressif esp-idf (components/soc per-target headers)",
+        "repo": "espressif/esp-idf",
+        "release": "latest",
+        "license": "Apache-2.0 OR MIT (headers); package overlays transcribed from Espressif datasheets — factual pin assignments"
+      },
+      "overlay": "scripts/sources/espressif/data/targets"
     }
   }
 }
