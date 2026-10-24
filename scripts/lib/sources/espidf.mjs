@@ -30,18 +30,29 @@ export const TARGETS = [
   'esp32h2', 'esp32p4'
 ]
 
-/** Candidate paths per artifact, newest layout first (esp-idf moved register headers into
- *  register/soc/ around v5; touch has two historical filenames). */
+/** Candidate repo paths per artifact, `{t}` = target. Newest layout first (esp-idf moved register
+ *  headers into register/soc/ around v5; P4 nests them under hw_verN/ — verified byte-identical
+ *  between hw_ver1 and hw_ver3; v6 moved touch channel tables out of components/soc into the
+ *  touch HAL component; C5+ renamed the pad-alias macro shape). */
 export const HEADER_FILES = {
-  ioMux: ['register/soc/io_mux_reg.h', 'include/soc/io_mux_reg.h'],
-  gpioSigMap: ['include/soc/gpio_sig_map.h'],
-  adc: ['include/soc/adc_channel.h'],
-  touch: ['include/soc/touch_sensor_channel.h', 'include/soc/touch_channel.h'],
-  socCaps: ['include/soc/soc_caps.h']
+  ioMux: [
+    'components/soc/{t}/register/soc/io_mux_reg.h',
+    'components/soc/{t}/include/soc/io_mux_reg.h',
+    'components/soc/{t}/register/hw_ver1/soc/io_mux_reg.h',
+    'components/soc/{t}/register/hw_ver3/soc/io_mux_reg.h'
+  ],
+  gpioSigMap: ['components/soc/{t}/include/soc/gpio_sig_map.h'],
+  adc: ['components/soc/{t}/include/soc/adc_channel.h'],
+  touch: [
+    'components/soc/{t}/include/soc/touch_sensor_channel.h',
+    'components/soc/{t}/include/soc/touch_channel.h',
+    'components/esp_hal_touch_sens/{t}/include/hal/touch_sensor_channel.h'
+  ],
+  socCaps: ['components/soc/{t}/include/soc/soc_caps.h']
 }
 
 export const espHeaderUrl = (ref, target, file) =>
-  `https://raw.githubusercontent.com/espressif/esp-idf/${ref}/components/soc/${target}/${file}`
+  `https://raw.githubusercontent.com/espressif/esp-idf/${ref}/${file.replaceAll('{t}', target)}`
 
 const SELF_GPIO = /^GPIO\d+$/
 
@@ -55,7 +66,8 @@ const SELF_GPIO = /^GPIO\d+$/
  */
 export function parseIoMuxReg(text) {
   const gpioToPad = new Map()
-  const regRe = /#define\s+IO_MUX_GPIO(\d+)_REG\s+PERIPHS_IO_MUX_([A-Z0-9_]+)_U\b/g
+  // Two macro generations: PERIPHS_IO_MUX_<PAD>_U (v5 era) and PERIPHS_IO_MUX_U_PAD_<PAD> (C5+, v6)
+  const regRe = /#define\s+IO_MUX_GPIO(\d+)_REG\s+PERIPHS_IO_MUX_(?:U_PAD_)?([A-Z0-9_]+?)(?:_U)?\b/g
   for (const [, gpio, pad] of text.matchAll(regRe)) gpioToPad.set(Number(gpio), pad)
 
   const functions = new Map() // gpio → [{name, sel}]
@@ -225,8 +237,10 @@ export async function run(ctx) {
   const byTarget = new Map()
   const failures = []
   for (const r of loaded) {
-    if (r.ok) byTarget.set(r.value.target, r.value)
-    else failures.push({ chip: r.item, stage: 'download-primary', error: r.error })
+    // loadTarget reports missing mandatory headers as a plain {target, error} value (it cannot
+    // throw from inside mapPool's error slot), so check both layers before trusting r.value.
+    if (r.ok && !r.value.error) byTarget.set(r.value.target, r.value)
+    else failures.push({ chip: r.item, stage: 'download-primary', error: r.ok ? r.value.error : r.error })
   }
 
   const warnings = []

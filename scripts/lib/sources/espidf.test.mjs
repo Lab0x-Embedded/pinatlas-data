@@ -109,6 +109,26 @@ test('parseIoMuxReg: legacy esp32 — same shape, GPIO self-select value is 2 he
   ])
 })
 
+// esp-idf v6 (C5+) 把 pad 别名宏改成了 PERIPHS_IO_MUX_U_PAD_<名>(无 _U 尾缀)
+const C5_IO_MUX = `
+#define IO_MUX_GPIO2_REG                    PERIPHS_IO_MUX_U_PAD_MTMS
+#define IO_MUX_GPIO6_REG                    PERIPHS_IO_MUX_U_PAD_GPIO6
+#define USB_INT_PHY0_DM_GPIO_NUM              13
+#define FUNC_MTMS_FSPIQ                                                    2
+#define FUNC_MTMS_GPIO2                                                  1
+#define FUNC_MTMS_MTMS                                                    0
+#define FUNC_GPIO6_GPIO6                                                    1
+#define FUNC_GPIO6_GPIO6_0                                                  0
+`
+
+test('parseIoMuxReg: v6 U_PAD 宏形式(C5+)', () => {
+  const { pads } = parseIoMuxReg(C5_IO_MUX)
+  assert.equal(pads.get(2).pad, 'MTMS')
+  assert.equal(pads.get(6).pad, 'GPIO6')
+  assert.deepEqual(pads.get(2).functions.map((f) => [f.name, f.sel]), [['MTMS', 0], ['FSPIQ', 2]])
+  assert.deepEqual(pads.get(6).functions, [])
+})
+
 const C3_SIG_MAP = `
 #define SPICLK_OUT_MUX_IDX            SPICLK_OUT_IDX
 #define SPICLK_IN_IDX                   0
