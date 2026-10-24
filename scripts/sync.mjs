@@ -162,7 +162,10 @@ if (!opts.dryRun) {
     indexPath,
     manifestPath: join(outDir, 'index.json'),
     vendorSlugs: selected,
-    vendorNames: Object.fromEntries(selected.map((s) => [s, config.vendors[s].vendorName])),
+    // vendorName is static config, not run state: a --vendor X run must not blank the names of
+    // the other sections it rebuilds from disk (vendorSlugs only gates which upstream refs are
+    // fresh; every on-disk vendor dir gets indexed either way).
+    vendorNames: Object.fromEntries(Object.entries(config.vendors).map(([s, v]) => [s, v.vendorName])),
     upstreams: Object.fromEntries([...vendorResults].map(([s, { res }]) => [s, res.upstream])),
     generatedAt
   })
