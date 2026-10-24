@@ -20,7 +20,7 @@ import { readFile } from 'node:fs/promises'
 import { join, dirname, resolve as pathResolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { fetchJson, listFiles, resolveRef, mapPool, githubToken, proxyUrl } from './lib/http.mjs'
+import { fetchJson, fetchJsonAny, listFiles, resolveRef, mapPool, githubToken, proxyUrl } from './lib/http.mjs'
 import { normalizeStmdb, validateUnified, buildAfIndex, VALIDATION_RULES, SCHEMA_VERSION } from './lib/normalize.mjs'
 import { writeIfChanged, writeAlways, rebuildIndex, jsonText } from './lib/write.mjs'
 
@@ -87,10 +87,14 @@ const enrichRev = !opts.af
 log(`  primary    ${primary.repo}@${primaryRev.ref}${primaryRev.resolved ? '' : ' (sha unresolved, using branch)'}`)
 if (opts.af) log(`  enrichment ${enrich.repo}@${enrichRev.ref}${enrichRev.resolved ? '' : ' (sha unresolved, using branch)'}`)
 
-const cdnFor = (src, ref) => (ref.startsWith('sha256:') ? '' : src.cdn.replace('{ref}', ref))
-const fileUrl = (src, ref, path) => {
-  const cdn = cdnFor(src, ref)
-  return `${cdn}${path}`
+// Candidate URLs per file: CDN first, then raw.githubusercontent.com (config fallbackCdn) —
+// jsDelivr caps gh packages at 50 MB and the enrichment repo is far past it, so any file its
+// edge cache misses has to come from raw.
+const fileUrls = (src, ref, path) => {
+  if (ref.startsWith('sha256:')) return []
+  const urls = [src.cdn.replace('{ref}', ref) + path]
+  if (src.fallbackCdn) urls.push(src.fallbackCdn.replace('{ref}', ref) + path)
+  return urls
 }
 
 // ── 2. plan the primary set ─────────────────────────────────────────────────────────────────────
@@ -112,7 +116,7 @@ if (!planned.length) { console.error('FATAL: nothing to sync'); process.exit(2) 
 
 // ── 3. download primary docs ────────────────────────────────────────────────────────────────────
 const downloads = await mapPool(planned, net.concurrency, async (f) => {
-  const res = await fetchJson(fileUrl(primary, primaryRev.ref, f.path), transport)
+  const res = await fetchJsonAny(fileUrls(primary, primaryRev.ref, f.path), transport)
   if (!res.ok) throw new Error(`${res.error} (after ${res.attempts} tries)`)
   return { chip: f.chip, path: f.path, doc: res.data }
 })
@@ -154,7 +158,7 @@ if (opts.af && docs.size) {
     afInfo.bytes = bytes
     log(`  enrichment: ${picks.length} chip docs, ${(bytes / 1048576).toFixed(1)} MB (${afInfo.chipsMissing.length} not published upstream)`)
     const edl = await mapPool(picks, net.concurrency, async (p) => {
-      const res = await fetchJson(fileUrl(enrich, enrichRev.ref, p.path), transport)
+      const res = await fetchJsonAny(fileUrls(enrich, enrichRev.ref, p.path), transport)
       if (!res.ok) throw new Error(`${res.error} (after ${res.attempts} tries)`)
       return { chip: p.chip, doc: res.data }
     })

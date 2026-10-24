@@ -8,6 +8,11 @@
 // Every request is retried with exponential backoff and JSON-validated before use: measured on
 // this pipeline, ~24% of parallel CDN fetches fail silently without retries, and ~1% still fail
 // after three attempts. A failed fetch must never be mistaken for "no data".
+//
+// File downloads go through fetchJsonAny: CDN first, then raw.githubusercontent.com. jsDelivr
+// caps gh packages at 50 MB and stm32-data-generated outgrew it (2026-10, ~326 MB), so any file
+// missing from its edge cache comes back as a plain-text "Package size exceeded" page instead
+// of JSON. raw.githubusercontent.com serves per-file with no package cap and heals those.
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
@@ -24,13 +29,18 @@ export const githubToken = () =>
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// Credentials only go to GitHub hosts — never to the CDN, which is public content anyway.
+const isGithubHost = (url) => /^[^/]*\/\/[^/]*\.github\.com\//.test(url) || /^[^/]*\/\/github\.com\//.test(url)
+const authHeaders = (url, token) =>
+  token && isGithubHost(url) ? { authorization: `Bearer ${token}` } : {}
+
 async function request(url, { timeoutMs, token, useFetch }) {
   if (useFetch) {
     const res = await fetch(url, {
       headers: {
         'user-agent': UA,
         accept: 'application/vnd.github+json',
-        ...(token ? { authorization: `Bearer ${token}` } : {})
+        ...authHeaders(url, token)
       },
       signal: AbortSignal.timeout(timeoutMs)
     })
@@ -45,7 +55,8 @@ async function request(url, { timeoutMs, token, useFetch }) {
   ]
   const proxy = proxyUrl()
   if (proxy) args.push('-x', proxy)
-  if (token) args.push('-H', `authorization: Bearer ${token}`)
+  const auth = authHeaders(url, token)
+  if (auth.authorization) args.push('-H', `authorization: ${auth.authorization}`)
   args.push(url)
 
   const { stdout } = await run('curl', args, { maxBuffer: 256 * 1024 * 1024 })
@@ -59,7 +70,16 @@ export async function fetchJson(url, { tries = 4, timeoutMs = 60000, token = '',
     try {
       const text = await request(url, { timeoutMs, token, useFetch })
       if (!text || !text.trim()) throw new Error('empty response')
-      const data = JSON.parse(text)
+      let data
+      try {
+        data = JSON.parse(text)
+      } catch {
+        const err = new Error(`non-JSON response: "${text.replace(/\s+/g, ' ').slice(0, 90).trim()}"`)
+        // A CDN refusing the whole package (jsDelivr's 50 MB gh cap) is deterministic —
+        // retrying the same URL can only burn the backoff budget.
+        err.noRetry = /package size exceeded|exceeds the maximum/i.test(text)
+        throw err
+      }
       if (data && typeof data === 'object' && typeof data.message === 'string' &&
           /rate limit|Bad credentials|Not Found/i.test(data.message)) {
         throw new Error(data.message)
@@ -67,10 +87,31 @@ export async function fetchJson(url, { tries = 4, timeoutMs = 60000, token = '',
       return { ok: true, data, attempts: attempt }
     } catch (err) {
       last = err?.message || String(err)
+      if (err?.noRetry) break
       if (attempt < tries) await sleep(Math.min(8000, 400 * 2 ** attempt))
     }
   }
   return { ok: false, error: last, attempts: tries }
+}
+
+const hostOf = (url) => url.split('/')[2]
+
+/**
+ * GET → parsed JSON, trying candidate URLs in order (CDN first, raw.githubusercontent.com as
+ * the authoritative fallback). Non-final URLs get at most 2 tries each: their failures skew
+ * deterministic, and the last URL carries the full retry budget.
+ */
+export async function fetchJsonAny(urls, { tries = 4, ...rest } = {}) {
+  if (!urls.length) return { ok: false, error: 'no candidate URLs', attempts: 0 }
+  const errors = []
+  let attempts = 0
+  for (const [i, url] of urls.entries()) {
+    const res = await fetchJson(url, { ...rest, tries: i === urls.length - 1 ? tries : Math.min(2, tries) })
+    attempts += res.attempts
+    if (res.ok) return { ok: true, data: res.data, attempts }
+    errors.push(`${hostOf(url)}: ${res.error}`)
+  }
+  return { ok: false, error: errors.join(' | '), attempts }
 }
 
 /** Resolve a branch to its commit sha; falls back to the branch name when the API is unreachable. */
