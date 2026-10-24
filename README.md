@@ -59,7 +59,7 @@ node scripts/sync.mjs --dry-run --line STM32F1              # 只转换+校验�
 
 常用参数：`--vendor`（all 或逗号列表）、`--line`、`--ref`、`--concurrency`、`--tries`、`--out`、`--no-af`、`--primary-sha` / `--enrichment-sha`（指定上游 commit）、`--json`（机器可读摘要）。
 
-ESP32 覆盖进度：overlay 逐 target 补齐中（`--vendor espressif` 跑一次即可看到"no overlay yet"清单）；封装脚号抄自各 target 的 datasheet，出处记录在 overlay JSON 的 `source` 字段。
+ESP32 覆盖:10/10 target(ESP32/S2/S3/C2/C3/C5/C6/C61/H2/P4),21 个封装/模组条目(裸片封装全量 + C3-MINI-1、S3-WROOM-1、C6-WROOM-1 模组);WROOM-32E/WROVER-E 等其余模组的 datasheet 已迁移到 Espressif 新文档平台,后续按同格式补充。封装脚号抄自各 target 的 datasheet,出处记录在 overlay JSON 的 `source` 字段。
 
 ## 设计约束（都是实测踩出来的）
 
