@@ -34,7 +34,7 @@ const isGithubHost = (url) => /^[^/]*\/\/[^/]*\.github\.com\//.test(url) || /^[^
 const authHeaders = (url, token) =>
   token && isGithubHost(url) ? { authorization: `Bearer ${token}` } : {}
 
-async function request(url, { timeoutMs, token, useFetch }) {
+async function request(url, { timeoutMs, token, useFetch, failOnHttpError }) {
   if (useFetch) {
     const res = await fetch(url, {
       headers: {
@@ -53,6 +53,7 @@ async function request(url, { timeoutMs, token, useFetch }) {
     '-H', `user-agent: ${UA}`,
     '-H', 'accept: application/vnd.github+json'
   ]
+  if (failOnHttpError) args.push('-f')
   const proxy = proxyUrl()
   if (proxy) args.push('-x', proxy)
   const auth = authHeaders(url, token)
@@ -96,6 +97,24 @@ export async function fetchJson(url, { tries = 4, timeoutMs = 60000, token = '',
 
 const hostOf = (url) => url.split('/')[2]
 
+/** GET → raw text with retries (C headers, CSVs). Same never-throws contract as fetchJson. */
+export async function fetchText(url, { tries = 4, timeoutMs = 60000, token = '', useFetch = false } = {}) {
+  let last = 'unknown error'
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try {
+      const text = await request(url, { timeoutMs, token, useFetch, failOnHttpError: true })
+      if (!text || !text.trim()) throw new Error('empty response')
+      return { ok: true, data: text, attempts: attempt }
+    } catch (err) {
+      last = err?.message || String(err)
+      // A missing file on a pinned ref is deterministic — retrying just burns the backoff.
+      if (/error: 40[45]/.test(last)) break
+      if (attempt < tries) await sleep(Math.min(8000, 400 * 2 ** attempt))
+    }
+  }
+  return { ok: false, error: last, attempts: tries }
+}
+
 /**
  * GET → parsed JSON, trying candidate URLs in order (CDN first, raw.githubusercontent.com as
  * the authoritative fallback). Non-final URLs get at most 2 tries each: their failures skew
@@ -122,6 +141,19 @@ export async function resolveRef(repo, branch, opts = {}) {
   )
   if (res.ok && res.data?.sha) return { ref: res.data.sha, resolved: true, date: res.data?.commit?.committer?.date || null }
   return { ref: branch, resolved: false, date: null, error: res.error }
+}
+
+/** Latest stable release tag (e.g. esp-idf vX.Y.Z) — pinned instead of a branch so jsDelivr-style
+ *  cache drift and mid-refactor upstream changes can never split a build. */
+export async function resolveLatestTag(repo, opts = {}) {
+  const res = await fetchJson(
+    `https://api.github.com/repos/${repo}/releases/latest`,
+    { tries: 3, ...opts }
+  )
+  if (res.ok && res.data?.tag_name) {
+    return { ref: res.data.tag_name, resolved: true, date: res.data?.published_at || null }
+  }
+  return { ref: null, resolved: false, date: null, error: res.error || 'no releases' }
 }
 
 /** Full recursive file listing for a commit: [{path, size}] (blobs only, optionally filtered). */
