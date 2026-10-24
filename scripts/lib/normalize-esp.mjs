@@ -55,11 +55,11 @@ const splitEspSignal = (name) => {
 
 // Non-GPIO pin names from the overlay → unified pin.type (aligned with ST's mapPinType).
 const PIN_TYPE_BY_NAME = [
-  [/^GND/, 'ground'],
-  [/^VDD|^VCC|^VBAT/, 'power'],
+  [/^GND|^EPAD$/, 'ground'],
+  [/^VDD|^VCC|^VBAT|^3V3$/, 'power'],
   [/^CHIP_EN|^CHIP_PU|^EN$|^RST/, 'reset'],
   [/^XTAL/, 'clock'],
-  [/^LNA_IN|^RF/, 'other'],
+  [/^LNA_IN|^RF|^ANT/, 'other'],
   [/^NC$/, 'nc']
 ]
 

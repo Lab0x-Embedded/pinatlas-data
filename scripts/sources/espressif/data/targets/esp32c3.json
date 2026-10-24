@@ -103,7 +103,31 @@
         "32": "VDDA",
         "33": "GND"
       }
+    },
+    {
+      "id": "MINI-1",
+      "kind": "module",
+      "package": "MINI-1 (15.4×20.5)",
+      "packageKind": "module",
+      "pinCount": 53,
+      "parts": [
+        { "mpn": "ESP32-C3-MINI-1", "status": "Active" },
+        { "mpn": "ESP32-C3-MINI-1U", "status": "Active" }
+      ],
+      "pinMap": {
+        "1": "GND", "2": "GND", "3": "3V3", "4": "NC", "5": "GPIO2",
+        "6": "GPIO3", "7": "NC", "8": "CHIP_EN", "9": "NC", "10": "NC",
+        "11": "GND", "12": "GPIO0", "13": "GPIO1", "14": "GND", "15": "NC",
+        "16": "GPIO10", "17": "NC", "18": "GPIO4", "19": "GPIO5", "20": "GPIO6",
+        "21": "GPIO7", "22": "GPIO8", "23": "GPIO9", "24": "NC", "25": "NC",
+        "26": "GPIO18", "27": "GPIO19", "28": "NC", "29": "NC", "30": "GPIO20",
+        "31": "GPIO21", "32": "NC", "33": "NC", "34": "NC", "35": "NC",
+        "36": "GND", "37": "GND", "38": "GND", "39": "GND", "40": "GND",
+        "41": "GND", "42": "GND", "43": "GND", "44": "GND", "45": "GND",
+        "46": "GND", "47": "GND", "48": "GND", "49": "GND", "50": "GND",
+        "51": "GND", "52": "GND", "53": "GND"
+      }
     }
   ],
-  "source": "ESP32-C3 Series Datasheet v2.4, Tables 1-1 (ordering), 2-1 (pin overview), 2-6 (analog functions) — https://www.espressif.com/sites/default/files/documentation/esp32-c3_datasheet_en.pdf"
+  "source": "ESP32-C3 Series Datasheet v2.4, Tables 1-1 (ordering), 2-1 (pin overview), 2-6 (analog functions); ESP32-C3-MINI-1 & MINI-1U Datasheet v2.2, Table 3-1 (module pin definitions) — https://www.espressif.com/sites/default/files/documentation/esp32-c3_datasheet_en.pdf"
 }

@@ -194,12 +194,17 @@ export async function loadTarget(ref, target, transport) {
 
 // ── source adapter (contract: see sync.mjs) ─────────────────────────────────────────────────────
 
-/** Read the curated overlay JSONs. Every overlay file present = one target we ship. */
-async function loadOverlays(vendorCfg) {
+/** Read the curated overlay JSONs. Every overlay file present = one target we ship.
+ *  A malformed overlay is a single-target failure, not a pipeline crash. */
+async function loadOverlays(vendorCfg, onFailure) {
   const dir = pathResolve(ROOT, vendorCfg.overlay)
   const out = new Map()
   for (const f of (await readdir(dir)).filter((n) => n.endsWith('.json')).sort()) {
-    out.set(f.replace(/\.json$/, ''), JSON.parse(await readFile(join(dir, f), 'utf8')))
+    try {
+      out.set(f.replace(/\.json$/, ''), JSON.parse(await readFile(join(dir, f), 'utf8')))
+    } catch (err) {
+      onFailure?.({ file: f, error: err?.message || String(err) })
+    }
   }
   return out
 }
@@ -212,12 +217,14 @@ export async function run(ctx) {
   if (!rev.resolved) return { fatal: `FATAL: cannot resolve latest release of ${primary.repo} (${rev.error})` }
   log(`  esp-idf    ${primary.repo}@${rev.ref}`)
 
-  const overlays = await loadOverlays(vendorCfg)
+  const overlayFailures = []
+  const overlays = await loadOverlays(vendorCfg, (f) => overlayFailures.push(f))
   const unknown = [...overlays.keys()].filter((t) => !TARGETS.includes(t))
   const missing = TARGETS.filter((t) => !overlays.has(t))
   log(`  overlay:   ${overlays.size}/${TARGETS.length} targets` +
       (missing.length ? ` (no overlay yet: ${missing.join(', ')})` : '') +
-      (unknown.length ? ` [UNKNOWN in TARGETS: ${unknown.join(', ')}]` : ''))
+      (unknown.length ? ` [UNKNOWN in TARGETS: ${unknown.join(', ')}]` : '') +
+      (overlayFailures.length ? ` [PARSE FAILED: ${overlayFailures.map((f) => f.file).join(', ')}]` : ''))
 
   // plan: one chip per (target × overlay package), filtered like the ST pipeline filters refs
   let planned = []
@@ -235,7 +242,9 @@ export async function run(ctx) {
   const targets = [...new Set(planned.map((p) => p.target))]
   const loaded = await mapPool(targets, Math.min(4, net.concurrency), async (t) => loadTarget(rev.ref, t, transport))
   const byTarget = new Map()
-  const failures = []
+  const failures = overlayFailures.map((f) => ({
+    chip: f.file.replace(/\.json$/, ''), stage: 'overlay', error: f.error
+  }))
   for (const r of loaded) {
     // loadTarget reports missing mandatory headers as a plain {target, error} value (it cannot
     // throw from inside mapPool's error slot), so check both layers before trusting r.value.

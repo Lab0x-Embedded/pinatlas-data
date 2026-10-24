@@ -52,7 +52,26 @@
         "26": "GPIO21", "27": "GPIO22", "28": "GPIO23", "29": "VDDA1",
         "30": "XTAL_N", "31": "XTAL_P", "32": "VDDA2", "33": "GND"
       }
+    },
+    {
+      "id": "WROOM-1",
+      "kind": "module",
+      "package": "WROOM-1 (18×25.5)",
+      "packageKind": "module",
+      "pinCount": 29,
+      "parts": [
+        { "mpn": "ESP32-C6-WROOM-1", "status": "Active" },
+        { "mpn": "ESP32-C6-WROOM-1U", "status": "Active" }
+      ],
+      "pinMap": {
+        "1": "GND", "2": "3V3", "3": "EN", "4": "GPIO4", "5": "GPIO5",
+        "6": "GPIO6", "7": "GPIO7", "8": "GPIO0", "9": "GPIO1", "10": "GPIO8",
+        "11": "GPIO10", "12": "GPIO11", "13": "GPIO12", "14": "GPIO13", "15": "GPIO9",
+        "16": "GPIO18", "17": "GPIO19", "18": "GPIO20", "19": "GPIO21", "20": "GPIO22",
+        "21": "GPIO23", "22": "NC", "23": "GPIO15", "24": "GPIO17", "25": "GPIO16",
+        "26": "GPIO3", "27": "GPIO2", "28": "GND", "29": "GND"
+      }
     }
   ],
-  "source": "ESP32-C6 Series Datasheet v1.5, Tables 1-1 (ordering), 2-1/2-2 (pin overview), 3-1 (strapping); pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp32-c6_datasheet_en.pdf"
+  "source": "ESP32-C6 Series Datasheet v1.5, Tables 1-1 (ordering), 2-1/2-2 (pin overview), 3-1 (strapping); ESP32-C6-WROOM-1 & WROOM-1U Datasheet v1.4, Table 3-1 (module pin definitions); pad↔GPIO per esp-idf io_mux_reg.h — https://www.espressif.com/sites/default/files/documentation/esp32-c6_datasheet_en.pdf"
 }
