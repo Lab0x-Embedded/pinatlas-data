@@ -54,8 +54,14 @@ async function walkJson(dir) {
 /**
  * Rebuild index shards from the whole data tree (not just this run's files), so an incremental
  * sync never leaves the index claiming less than what is on disk.
+ *
+ * Multi-vendor: every vendor directory under outDir gets its own shard set and its own section
+ * in the manifest. The legacy top-level fields (vendor/upstream/totals/shards) keep mirroring
+ * the `st` section when it was synced this run — the pre-multi-vendor frontend contract — and
+ * fall back to the first vendor otherwise. Vendors whose data exists on disk but was not part
+ * of this run carry `upstream: null` (their docs are still indexed, just without fresh refs).
  */
-export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlug, generatedAt, upstream }) {
+async function buildVendorIndex({ outDir, indexPath, vendorSlug, vendorName, generatedAt, upstream }) {
   const root = join(outDir, vendorSlug)
   const files = (await walkJson(root)).sort()
   const shards = new Map()
@@ -117,18 +123,57 @@ export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlug
     shardMeta.push({ family, count: shard.count, path: `index/${path}` })
   }
 
-  const manifest = {
-    schemaVersion: SCHEMA_VERSION,
-    generatedAt,
+  return {
     vendor: vendorSlug,
-    upstream,
+    vendorName: vendorName ?? vendorSlug,
+    upstream: upstream ?? null,
     totals: {
       chips: chipCount,
       pins: pinCount,
       afSlots,
       afCoverage: afSlots ? Number((afCount / afSlots).toFixed(4)) : 0
     },
+    // afCount rides along for multi-vendor aggregation; the legacy top-level `totals`
+    // deliberately keeps the pre-v1.4.0 {chips,pins,afSlots,afCoverage} shape.
+    afCount,
     shards: shardMeta
+  }
+}
+
+/**
+ * @param {string[]} vendorSlugs vendor sections to (re)build; data dirs found on disk but not
+ *   listed here are indexed too, with `upstream: null`.
+ */
+export async function rebuildIndex({ outDir, indexPath, manifestPath, vendorSlugs, vendorNames, upstreams, generatedAt }) {
+  // Vendor dirs present on disk (a partial --vendor run must not drop the others from the index).
+  let diskSlugs = []
+  try {
+    diskSlugs = (await readdir(outDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name)
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err
+  }
+  const all = [...new Set([...vendorSlugs, ...diskSlugs])]
+
+  const sections = new Map()
+  for (const slug of all) {
+    sections.set(slug, await buildVendorIndex({
+      outDir, indexPath, vendorSlug: slug,
+      vendorName: vendorNames?.[slug],
+      generatedAt,
+      upstream: upstreams?.[slug] ?? null
+    }))
+  }
+
+  // Legacy top-level mirror: st while it exists, else the first section.
+  const legacy = sections.get('st') ?? [...sections.values()][0]
+  const manifest = {
+    schemaVersion: SCHEMA_VERSION,
+    generatedAt,
+    vendor: legacy.vendor,
+    upstream: legacy.upstream,
+    totals: legacy.totals,
+    shards: legacy.shards,
+    vendors: Object.fromEntries([...sections].sort(([a], [b]) => a.localeCompare(b)))
   }
   await writeAlways(manifestPath, jsonText(manifest))
   return manifest

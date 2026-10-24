@@ -1,30 +1,38 @@
 #!/usr/bin/env node
-// PinAtlas data sync — LibrePCB/stm-db (primary, per-package pinout) + embassy-rs/stm32-data-generated
-// (AF numbers, register/RCC metadata reserved for code generation) → unified JSON under data/.
+// PinAtlas data sync — multi-vendor orchestrator.
+//   st:        LibrePCB/stm-db (primary, per-package pinout) + embassy-rs/stm32-data-generated
+//              (AF numbers) → unified JSON under data/st/.
+//   espressif: esp-idf headers (pad/IOMUX/GPIO-matrix signal maps) + curated package overlays
+//              → unified JSON under data/espressif/. (see scripts/lib/sources/espidf.mjs)
 //
 // Design notes that matter operationally:
-//   * upstreams are pinned by commit sha resolved at run time (never a branch) — jsDelivr caches
-//     branch URLs and would otherwise serve mismatched revisions;
-//   * failures never overwrite good data: a chip that fails to download or validate is skipped and
-//     listed in meta.json, and the process exits non-zero so CI goes red;
-//   * meta.json is always rewritten (checkedAt), which doubles as the weekly heartbeat commit that
-//     keeps GitHub's scheduled workflows from being disabled after 60 days of inactivity;
+//   * each vendor is a source adapter (scripts/lib/sources/<source>.mjs) with the same
+//     contract: resolve upstreams → download → normalise + validate → unified docs. Everything
+//     vendor-specific stays there; this file owns stats, writing, index and meta;
+//   * upstreams are pinned by commit sha / release tag resolved at run time (never a branch) —
+//     jsDelivr caches branch URLs and would otherwise serve mismatched revisions;
+//   * failures never overwrite good data: a chip that fails to download or validate is skipped
+//     and listed in meta.json, and the process exits non-zero so CI goes red;
+//   * meta.json is always rewritten (checkedAt), which doubles as the weekly heartbeat commit
+//     that keeps GitHub's scheduled workflows from being disabled after 60 idle days;
 //   * only changed files are written, so a quiet week commits meta.json alone.
 //
 // Usage:
-//   node scripts/sync.mjs                       # full sync (weekly CI job)
-//   node scripts/sync.mjs --line STM32F1 --limit 40 --af
-//   node scripts/sync.mjs --ref STM32F103C8Tx --af --out /tmp/pinatlas-data-test
-//   node scripts/sync.mjs --dry-run --line STM32F1   # convert + validate, write nothing
+//   node scripts/sync.mjs                                  # all configured vendors
+//   node scripts/sync.mjs --vendor st --line STM32F1 --limit 40 --af
+//   node scripts/sync.mjs --vendor espressif --ref ESP32-C3 --dry-run
 import { readFile } from 'node:fs/promises'
 import { join, dirname, resolve as pathResolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { fetchJson, fetchJsonAny, listFiles, resolveRef, mapPool, githubToken, proxyUrl } from './lib/http.mjs'
-import { normalizeStmdb, validateUnified, buildAfIndex, VALIDATION_RULES, SCHEMA_VERSION } from './lib/normalize.mjs'
+import { githubToken, proxyUrl } from './lib/http.mjs'
+import { VALIDATION_RULES, SCHEMA_VERSION } from './lib/normalize.mjs'
 import { writeIfChanged, writeAlways, rebuildIndex, jsonText } from './lib/write.mjs'
+import { run as runStmdb } from './lib/sources/stmdb.mjs'
 
 const ROOT = pathResolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+const SOURCES = { stmdb: runStmdb }
 
 // ── args ────────────────────────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2)
@@ -37,6 +45,7 @@ const value = (name, fallback = null) => {
 }
 
 const opts = {
+  vendor: value('vendor', 'all'),
   line: value('line'),
   ref: value('ref'),
   limit: value('limit') ? Number(value('limit')) : 0,
@@ -67,268 +76,235 @@ const indexPath = join(outDir, 'index')
 const startedAt = Date.now()
 const log = (...a) => { if (!opts.quiet) console.log(...a) }
 
+const selected = opts.vendor === 'all' ? Object.keys(config.vendors) : opts.vendor.split(',')
+for (const slug of selected) {
+  if (!config.vendors[slug]) { console.error(`FATAL: unknown vendor "${slug}" (configured: ${Object.keys(config.vendors).join(', ')})`); process.exit(2) }
+  if (!SOURCES[config.vendors[slug].source]) { console.error(`FATAL: source adapter "${config.vendors[slug].source}" for vendor ${slug} is not registered`); process.exit(2) }
+}
+
 log(`pinatlas-data sync → ${outDir}`)
 if (proxyUrl()) log(`  transport: curl via proxy ${proxyUrl()}${opts.useFetch ? ' (override: fetch)' : ''}`)
 else log(`  transport: ${opts.useFetch ? 'fetch' : 'curl (direct)'}`)
 
-// ── 1. resolve upstream revisions ───────────────────────────────────────────────────────────────
-const primary = config.primary
-const enrich = config.enrichment
-
-const primaryRev = opts.primarySha
-  ? { ref: opts.primarySha, resolved: true, date: null }
-  : await resolveRef(primary.repo, primary.branch, transport)
-const enrichRev = !opts.af
-  ? { ref: null, resolved: false, date: null }
-  : (opts.enrichmentSha
-      ? { ref: opts.enrichmentSha, resolved: true, date: null }
-      : await resolveRef(enrich.repo, enrich.branch, transport))
-
-log(`  primary    ${primary.repo}@${primaryRev.ref}${primaryRev.resolved ? '' : ' (sha unresolved, using branch)'}`)
-if (opts.af) log(`  enrichment ${enrich.repo}@${enrichRev.ref}${enrichRev.resolved ? '' : ' (sha unresolved, using branch)'}`)
-
-// Candidate URLs per file: CDN first, then raw.githubusercontent.com (config fallbackCdn) —
-// jsDelivr caps gh packages at 50 MB and the enrichment repo is far past it, so any file its
-// edge cache misses has to come from raw.
-const fileUrls = (src, ref, path) => {
-  if (ref.startsWith('sha256:')) return []
-  const urls = [src.cdn.replace('{ref}', ref) + path]
-  if (src.fallbackCdn) urls.push(src.fallbackCdn.replace('{ref}', ref) + path)
-  return urls
-}
-
-// ── 2. plan the primary set ─────────────────────────────────────────────────────────────────────
-const tree = await listFiles(primary.repo, primaryRev.ref, { prefix: primary.dataPrefix, opts: transport })
-if (!tree.ok) {
-  console.error(`FATAL: cannot list ${primary.repo}: ${tree.error}`)
-  process.exit(2)
-}
-let planned = tree.files
-  .map((f) => ({ ...f, chip: f.path.slice(primary.dataPrefix.length, -5) }))
-  .filter((f) => /^STM32/.test(f.chip))
-if (opts.ref) planned = planned.filter((f) => f.chip === opts.ref)
-if (opts.line) planned = planned.filter((f) => f.chip.startsWith(opts.line))
-planned.sort((a, b) => a.chip.localeCompare(b.chip))
-if (opts.limit) planned = planned.slice(0, opts.limit)
-
-log(`  primary files: ${planned.length}${opts.line ? ` (line ${opts.line})` : ''}${opts.ref ? ` (ref ${opts.ref})` : ''}${tree.truncated ? ' [tree listing TRUNCATED]' : ''}`)
-if (!planned.length) { console.error('FATAL: nothing to sync'); process.exit(2) }
-
-// ── 3. download primary docs ────────────────────────────────────────────────────────────────────
-const downloads = await mapPool(planned, net.concurrency, async (f) => {
-  const res = await fetchJsonAny(fileUrls(primary, primaryRev.ref, f.path), transport)
-  if (!res.ok) throw new Error(`${res.error} (after ${res.attempts} tries)`)
-  return { chip: f.chip, path: f.path, doc: res.data }
-})
-
-const failures = []
-const docs = new Map()
-const sourcePath = new Map(planned.map((f) => [f.chip, f.path]))
-for (const [i, r] of downloads.entries()) {
-  if (r.ok) docs.set(planned[i].chip, r.value.doc)
-  else failures.push({ chip: planned[i].chip, stage: 'download-primary', error: r.error })
-}
-log(`  downloaded: ${docs.size}/${planned.length} (${failures.length} failed)`)
-
-// ── 4. AF enrichment (only the chips actually needed) ───────────────────────────────────────────
-const afIndexes = new Map()
-const afInfo = { enabled: Boolean(opts.af), chips: 0, bytes: 0, missing: [], chipsMissing: [], skippedForBudget: false }
-if (opts.af && docs.size) {
-  const wanted = new Map()
-  for (const [chip, doc] of docs) {
-    const rpn = doc?.names?.rpn || (chip.endsWith('x') ? chip.slice(0, -2) : chip)
-    wanted.set(rpn, chip)
-  }
-  const etree = await listFiles(enrich.repo, enrichRev.ref, { prefix: enrich.dataPrefix, opts: transport })
-  if (!etree.ok) {
-    afInfo.skippedForBudget = true
-    afInfo.missing.push(`*: cannot list enrichment repo (${etree.error})`)
-    log(`  enrichment: listing failed (${etree.error}) — continuing without AF`)
-  } else {
-    const byName = new Map(etree.files.map((f) => [f.path.slice(enrich.dataPrefix.length, -5), f]))
-    const picks = []
-    let bytes = 0
-    for (const [rpn, chip] of wanted) {
-      const f = byName.get(rpn)
-      if (!f) { afInfo.chipsMissing.push(chip); continue }
-      if (bytes + f.size > config.network.afChipBudgetBytes) { afInfo.skippedForBudget = true; break }
-      bytes += f.size
-      picks.push({ ...f, rpn, chip })
-    }
-    afInfo.bytes = bytes
-    log(`  enrichment: ${picks.length} chip docs, ${(bytes / 1048576).toFixed(1)} MB (${afInfo.chipsMissing.length} not published upstream)`)
-    const edl = await mapPool(picks, net.concurrency, async (p) => {
-      const res = await fetchJsonAny(fileUrls(enrich, enrichRev.ref, p.path), transport)
-      if (!res.ok) throw new Error(`${res.error} (after ${res.attempts} tries)`)
-      return { chip: p.chip, doc: res.data }
-    })
-    for (const [i, r] of edl.entries()) {
-      if (!r.ok) { failures.push({ chip: picks[i].chip, stage: 'download-enrichment', error: r.error }); continue }
-      afIndexes.set(picks[i].chip, buildAfIndex(r.value.doc))
-      afInfo.chips++
-    }
-  }
-}
-
-// ── 5. normalise + validate + write ─────────────────────────────────────────────────────────────
-const afMisses = new Set()
-const stat = { added: 0, updated: 0, unchanged: 0, skipped: 0, pins: 0, afSlots: 0, afFilled: 0 }
-const warnings = []
-const perFamily = new Map()
-const kept = new Map()
-// 类型分布统计（写进 meta，作为"枚举改名/别名拆分"生效的可核查证据）
-const pinTypes = new Map()
-const functionTypes = new Map()
-let aliasedPins = 0
-let validatedChips = 0
+// ── per-vendor run + shared stats/write loop ─────────────────────────────────────────────────────
 const bump = (map, key) => map.set(key, (map.get(key) ?? 0) + 1)
+const vendorResults = new Map() // slug → {res, stat, pinTypes, functionTypes, aliasedPins, perFamily}
 
-for (const [chip, doc] of docs) {
-  const afIndex = afIndexes.get(chip)?.index || null
-  let unified
-  try {
-    unified = normalizeStmdb(doc, {
-      ref: chip,
-      vendorName: config.output.vendorName,
-      afIndex,
-      afMisses,
-      sourceMeta: {
-        primary: { repo: primary.repo, ref: primaryRev.ref, path: sourcePath.get(chip) || null, license: primary.license },
-        enrichment: afIndex
-          ? { repo: enrich.repo, ref: enrichRev.ref, used: ['af'] }
-          : { repo: enrich.repo, ref: enrichRev.ref, used: [] }
+for (const slug of selected) {
+  if (selected.length > 1) log(`\n── vendor ${slug} (${config.vendors[slug].source}) ──`)
+  const res = await SOURCES[config.vendors[slug].source]({
+    vendorSlug: slug,
+    vendorCfg: config.vendors[slug],
+    config,
+    opts,
+    transport,
+    net,
+    log
+  })
+  if (res.fatal) { console.error(res.fatal); process.exit(2) }
+
+  const stat = { added: 0, updated: 0, unchanged: 0, skipped: res.skipped ?? 0, pins: 0, afSlots: 0, afFilled: 0 }
+  const perFamily = new Map()
+  const pinTypes = new Map()
+  const functionTypes = new Map()
+  let aliasedPins = 0
+
+  for (const [chip, unified] of res.docs) {
+    stat.pins += unified.pinCount
+    for (const pin of unified.pins) {
+      bump(pinTypes, pin.type)
+      if (pin.aliases?.length) aliasedPins++
+      for (const fn of pin.functions) {
+        bump(functionTypes, fn.type ?? 'unknown')
+        if (fn.system) continue
+        stat.afSlots++
+        if (typeof fn.af === 'number') stat.afFilled++
       }
-    })
-  } catch (err) {
-    failures.push({ chip, stage: 'normalise', error: err?.message || String(err) })
-    stat.skipped++
-    continue
-  }
-
-  const { errors, warnings: warns, checked } = validateUnified(unified)
-  for (const w of warns) warnings.push(`${chip}: ${w}`)
-  if (errors.length) {
-    failures.push({ chip, stage: 'validate', error: errors.join('; ') })
-    stat.skipped++
-    continue
-  }
-  validatedChips++
-  if (checked.length !== VALIDATION_RULES.length) warnings.push(`${chip}: validator rule set mismatch`)
-
-  kept.set(chip, unified)
-  stat.pins += unified.pinCount
-  for (const pin of unified.pins) {
-    bump(pinTypes, pin.type)
-    if (pin.aliases?.length) aliasedPins++
-    for (const fn of pin.functions) {
-      bump(functionTypes, fn.type ?? 'unknown')
-      if (fn.system) continue
-      stat.afSlots++
-      if (typeof fn.af === 'number') stat.afFilled++
     }
-  }
-  const fam = unified.family || 'unknown'
-  if (!perFamily.has(fam)) perFamily.set(fam, { chips: 0, afSlots: 0, afFilled: 0 })
-  const fs = perFamily.get(fam)
-  fs.chips++
-  for (const pin of unified.pins) {
-    for (const fn of pin.functions) {
-      if (fn.system) continue
-      fs.afSlots++
-      if (typeof fn.af === 'number') fs.afFilled++
+    const fam = unified.family || 'unknown'
+    if (!perFamily.has(fam)) perFamily.set(fam, { chips: 0, afSlots: 0, afFilled: 0 })
+    const fs = perFamily.get(fam)
+    fs.chips++
+    for (const pin of unified.pins) {
+      for (const fn of pin.functions) {
+        if (fn.system) continue
+        fs.afSlots++
+        if (typeof fn.af === 'number') fs.afFilled++
+      }
     }
+
+    if (opts.dryRun) continue
+    const target = join(outDir, slug, fam, `${chip}.json`)
+    const result = await writeIfChanged(target, jsonText(unified))
+    stat[result]++
   }
 
-  if (opts.dryRun) continue
-  const target = join(outDir, config.output.vendorSlug, fam, `${chip}.json`)
-  const result = await writeIfChanged(target, jsonText(unified))
-  stat[result]++
+  vendorResults.set(slug, { res, stat, pinTypes, functionTypes, aliasedPins, perFamily })
 }
 
-// ── 6. index + meta ─────────────────────────────────────────────────────────────────────────────
-const upstream = {
-  primary: { repo: primary.repo, branch: primary.branch, ref: primaryRev.ref, resolved: primaryRev.resolved, commitDate: primaryRev.date },
-  enrichment: opts.af
-    ? { repo: enrich.repo, branch: enrich.branch, ref: enrichRev.ref, resolved: enrichRev.resolved, commitDate: enrichRev.date, requested: true }
-    : { repo: enrich.repo, requested: false }
-}
+// ── index + meta ─────────────────────────────────────────────────────────────────────────────────
 const generatedAt = new Date().toISOString()
 
 let manifest = null
 if (!opts.dryRun) {
-  manifest = await rebuildIndex({ outDir, indexPath, manifestPath: join(outDir, 'index.json'), vendorSlug: config.output.vendorSlug, generatedAt, upstream })
+  manifest = await rebuildIndex({
+    outDir,
+    indexPath,
+    manifestPath: join(outDir, 'index.json'),
+    vendorSlugs: selected,
+    vendorNames: Object.fromEntries(selected.map((s) => [s, config.vendors[s].vendorName])),
+    upstreams: Object.fromEntries([...vendorResults].map(([s, { res }]) => [s, res.upstream])),
+    generatedAt
+  })
 }
+
+// st-run semantics (afSlots etc.) aggregate naturally across vendors: ESP32 reuses `af` for the
+// IOMUX function-select value, so "slots with a mux select" stays a meaningful global ratio.
+const totals = { considered: 0, added: 0, updated: 0, unchanged: 0, skipped: 0, failed: 0, pins: 0, afSlots: 0, afFilled: 0 }
+const allFailures = []
+const allWarnings = []
+const pinTypes = new Map()
+const functionTypes = new Map()
+let aliasedPins = 0
+const afUnmatched = new Set()
+
+const vendorSections = {}
+for (const [slug, { res, stat, pinTypes: pt, functionTypes: ft, aliasedPins: ap, perFamily }] of vendorResults) {
+  totals.considered += res.considered
+  for (const k of ['added', 'updated', 'unchanged', 'skipped']) totals[k] += stat[k]
+  totals.failed += res.failures.length
+  totals.pins += stat.pins
+  totals.afSlots += stat.afSlots
+  totals.afFilled += stat.afFilled
+  allFailures.push(...res.failures)
+  allWarnings.push(...res.warnings)
+  for (const [k, v] of pt) pinTypes.set(k, (pinTypes.get(k) ?? 0) + v)
+  for (const [k, v] of ft) functionTypes.set(k, (functionTypes.get(k) ?? 0) + v)
+  aliasedPins += ap
+  for (const m of res.afMisses ?? []) afUnmatched.add(m)
+
+  vendorSections[slug] = {
+    vendorName: config.vendors[slug].vendorName,
+    upstream: res.upstream,
+    run: {
+      considered: res.considered,
+      written: stat.added + stat.updated,
+      added: stat.added,
+      updated: stat.updated,
+      unchanged: stat.unchanged,
+      skipped: stat.skipped,
+      failed: res.failures.length,
+      pins: stat.pins,
+      afSlots: stat.afSlots,
+      afCoverage: stat.afSlots ? Number((stat.afFilled / stat.afSlots).toFixed(4)) : 0
+    },
+    ...(res.enrichInfo ? {
+      enrichment: {
+        chips: res.enrichInfo.chips,
+        megabytes: Number((res.enrichInfo.bytes / 1048576).toFixed(1)),
+        chipsNotPublishedUpstream: res.enrichInfo.chipsMissing.length,
+        budgetExceeded: res.enrichInfo.skippedForBudget,
+        notes: res.enrichInfo.missing
+      }
+    } : {}),
+    families: [...perFamily].map(([family, s]) => ({
+      family,
+      chips: s.chips,
+      afCoverage: s.afSlots ? Number((s.afFilled / s.afSlots).toFixed(4)) : 0
+    })).sort((a, b) => a.family.localeCompare(b.family)),
+    validation: {
+      checkedChips: res.validation.checkedChips,
+      rules: VALIDATION_RULES,
+      violations: res.validation.failures.length,
+      failures: res.validation.failures
+    },
+    pinTypes: Object.fromEntries([...pt].sort((a, b) => b[1] - a[1])),
+    functionTypes: Object.fromEntries([...ft].sort((a, b) => b[1] - a[1])),
+    pinsWithAliases: ap,
+    afUnmatchedTop: [...(res.afMisses ?? [])].sort().slice(0, 40)
+  }
+}
+
+// Legacy top-level mirror: keep the pre-multi-vendor contract stable for existing consumers —
+// `upstream`/`enrichment` describe the st pipeline when it ran (else the first vendor).
+const legacy = vendorResults.has('st') ? vendorSections.st : vendorSections[selected[0]]
+const datasetTotals = manifest
+  ? [...Object.values(manifest.vendors)].reduce((acc, v) => ({
+      chips: acc.chips + v.totals.chips,
+      pins: acc.pins + v.totals.pins,
+      afSlots: acc.afSlots + v.totals.afSlots,
+      afFilled: acc.afFilled + v.afCount
+    }), { chips: 0, pins: 0, afSlots: 0, afFilled: 0 })
+  : null
 
 const meta = {
   schemaVersion: SCHEMA_VERSION,
   checkedAt: generatedAt,
   generatedAt,
   filters: { line: opts.line, ref: opts.ref, limit: opts.limit || null, af: opts.af },
-  upstream,
+  upstream: legacy.upstream,
   run: {
-    considered: planned.length,
-    written: stat.added + stat.updated,
-    added: stat.added,
-    updated: stat.updated,
-    unchanged: stat.unchanged,
-    skipped: stat.skipped,
-    failed: failures.length,
-    pins: stat.pins,
-    afSlots: stat.afSlots,
-    afCoverage: stat.afSlots ? Number((stat.afFilled / stat.afSlots).toFixed(4)) : 0,
+    considered: totals.considered,
+    written: totals.added + totals.updated,
+    added: totals.added,
+    updated: totals.updated,
+    unchanged: totals.unchanged,
+    skipped: totals.skipped,
+    failed: totals.failed,
+    pins: totals.pins,
+    afSlots: totals.afSlots,
+    afCoverage: totals.afSlots ? Number((totals.afFilled / totals.afSlots).toFixed(4)) : 0,
     seconds: Number(((Date.now() - startedAt) / 1000).toFixed(1))
   },
-  enrichment: {
-    chips: afInfo.chips,
-    megabytes: Number((afInfo.bytes / 1048576).toFixed(1)),
-    chipsNotPublishedUpstream: afInfo.chipsMissing.length,
-    budgetExceeded: afInfo.skippedForBudget,
-    notes: afInfo.missing
-  },
-  families: [...perFamily].map(([family, s]) => ({
-    family,
-    chips: s.chips,
-    afCoverage: s.afSlots ? Number((s.afFilled / s.afSlots).toFixed(4)) : 0
-  })).sort((a, b) => a.family.localeCompare(b.family)),
-  datasetTotals: manifest?.totals ?? null,
+  enrichment: legacy.enrichment ?? { chips: 0, megabytes: 0, chipsNotPublishedUpstream: 0, budgetExceeded: false, notes: [] },
+  families: Object.values(vendorSections).flatMap((v) => v.families).sort((a, b) => a.family.localeCompare(b.family)),
+  datasetTotals: datasetTotals
+    ? {
+        chips: datasetTotals.chips,
+        pins: datasetTotals.pins,
+        afSlots: datasetTotals.afSlots,
+        afCoverage: datasetTotals.afSlots ? Number((datasetTotals.afFilled / datasetTotals.afSlots).toFixed(4)) : 0
+      }
+    : null,
   // 校验器：规则清单 + 实际执行数量 + 违规数（0 才代表物理 pin 层干净）
   validation: {
-    checkedChips: validatedChips,
+    checkedChips: Object.values(vendorSections).reduce((n, v) => n + v.validation.checkedChips, 0),
     rules: VALIDATION_RULES,
-    violations: failures.filter(f => f.stage === 'validate').length,
-    failures: failures.filter(f => f.stage === 'validate').map(f => ({ chip: f.chip, error: f.error }))
+    violations: Object.values(vendorSections).reduce((n, v) => n + v.validation.violations, 0),
+    failures: allFailures.filter(f => f.stage === 'validate').map(f => ({ chip: f.chip, error: f.error }))
   },
   pinTypes: Object.fromEntries([...pinTypes].sort((a, b) => b[1] - a[1])),
   functionTypes: Object.fromEntries([...functionTypes].sort((a, b) => b[1] - a[1])),
   pinsWithAliases: aliasedPins,
-  failures,
-  warningCount: warnings.length,
-  warningsTop: [...new Set(warnings)].slice(0, 40),
-  afUnmatchedTop: [...afMisses].sort().slice(0, 40)
+  failures: allFailures,
+  warningCount: allWarnings.length,
+  warningsTop: [...new Set(allWarnings)].slice(0, 40),
+  afUnmatchedTop: [...afUnmatched].sort().slice(0, 40),
+  vendors: vendorSections
 }
 
 if (!opts.dryRun) {
   await writeAlways(join(outDir, 'meta.json'), jsonText(meta))
 } else {
-  meta.datasetTotals = { dryRun: true, chips: kept.size, pins: stat.pins }
+  meta.datasetTotals = { dryRun: true, chips: [...vendorResults.values()].reduce((n, { res }) => n + res.docs.size, 0), pins: totals.pins }
 }
 
 const summary = {
-  ok: failures.length === 0,
+  ok: allFailures.length === 0,
   ...meta.run,
   afCoverage: meta.run.afCoverage,
-  failures: failures.slice(0, 10)
+  failures: allFailures.slice(0, 10)
 }
 
 if (opts.json) console.log(JSON.stringify(summary, null, 2))
 else {
-  log(`\nwritten: ${stat.added} added, ${stat.updated} updated, ${stat.unchanged} unchanged, ${stat.skipped} skipped, ${failures.length} failed`)
-  log(`pins: ${stat.pins} | AF filled: ${stat.afFilled}/${stat.afSlots} (${(meta.run.afCoverage * 100).toFixed(1)}%)`)
-  if (manifest) log(`dataset now: ${manifest.totals.chips} chips, ${manifest.totals.pins} pins, AF ${(manifest.totals.afCoverage * 100).toFixed(1)}%`)
-  if (afMisses.size) log(`AF 未匹配 token（前 10）: ${[...afMisses].sort().slice(0, 10).join(', ')}`)
-  if (warnings.length) log(`warnings: ${warnings.length} (see meta.json)`)
-  for (const f of failures.slice(0, 10)) log(`  FAIL ${f.chip} [${f.stage}] ${f.error}`)
+  log(`\nwritten: ${totals.added} added, ${totals.updated} updated, ${totals.unchanged} unchanged, ${totals.skipped} skipped, ${allFailures.length} failed`)
+  log(`pins: ${totals.pins} | AF filled: ${totals.afFilled}/${totals.afSlots} (${(meta.run.afCoverage * 100).toFixed(1)}%)`)
+  if (manifest) log(`dataset now: ${meta.datasetTotals.chips} chips, ${meta.datasetTotals.pins} pins, AF ${(meta.datasetTotals.afCoverage * 100).toFixed(1)}%`)
+  if (afUnmatched.size) log(`AF 未匹配 token（前 10）: ${[...afUnmatched].sort().slice(0, 10).join(', ')}`)
+  if (allWarnings.length) log(`warnings: ${allWarnings.length} (see meta.json)`)
+  for (const f of allFailures.slice(0, 10)) log(`  FAIL ${f.chip} [${f.stage}] ${f.error}`)
   log(`done in ${meta.run.seconds}s`)
 }
 
-process.exit(failures.length ? 1 : 0)
+process.exit(allFailures.length ? 1 : 0)
